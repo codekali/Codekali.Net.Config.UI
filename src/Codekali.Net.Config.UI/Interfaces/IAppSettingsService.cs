@@ -17,6 +17,7 @@ public interface IAppSettingsService
     /// Reads and parses the full contents of the named file into a tree of <see cref="ConfigEntry"/> objects.
     /// </summary>
     /// <param name="fileName">The file name, e.g. "appsettings.Development.json".</param>
+    /// <param name="ct">A cancellation token.</param>
     Task<OperationResult<IReadOnlyList<ConfigEntry>>> GetEntriesAsync(string fileName, CancellationToken ct = default);
 
     /// <summary>

@@ -14,6 +14,7 @@ public interface IBackupService
     /// <c>appsettings.json.20240101T120000.bak</c>.
     /// </summary>
     /// <param name="fileName">The appsettings file name to back up.</param>
+    /// <param name="ct">A cancellation token.</param>
     /// <returns>The full path of the created backup file, or a failure result.</returns>
     Task<OperationResult<string>> CreateBackupAsync(string fileName, CancellationToken ct = default);
 
