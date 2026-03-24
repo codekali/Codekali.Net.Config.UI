@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Config UI — Codekali</title>
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────────────── */
+    :root {
+      --bg: #0f1117;
+      --bg2: #161b27;
+      --bg3: #1e2535;
+      --border: #2a3347;
+      --text: #e2e8f0;
+      --text2: #8899aa;
+      --accent: #38bdf8;
+      --accent2: #7dd3fc;
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #fbbf24;
+      --orange: #fb923c;
+      --purple: #c084fc;
+      --radius: 8px;
+      --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --sans: system-ui, -apple-system, sans-serif;
+      --shadow: 0 4px 24px rgba(0,0,0,.4);
+    }
+    [data-theme="light"] {
+      --bg: #f0f4f8;
+      --bg2: #ffffff;
+      --bg3: #e8edf4;
+      --border: #cbd5e1;
+      --text: #1e293b;
+      --text2: #64748b;
+      --accent: #0284c7;
+      --accent2: #0ea5e9;
+      --shadow: 0 4px 24px rgba(0,0,0,.1);
+    }
+
+    /* ── Reset ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    button { cursor: pointer; font: inherit; border: none; background: none; }
+    input, textarea { font: inherit; }
+    a { color: var(--accent); text-decoration: none; }
+
+    /* ── Layout ────────────────────────────────────────────────────────── */
+    .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      height: 52px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .logo {
+      font-family: var(--font);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+    .logo span { color: var(--text2); font-weight: 400; }
+    .header-badge {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-family: var(--font);
+    }
+    .header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+    .main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ───────────────────────────────────────────────────────── */
+    .sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 12px 16px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+    .file-list { flex: 1; overflow-y: auto; padding: 6px; }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background .15s;
+      border: 1px solid transparent;
+    }
+    .file-item:hover { background: var(--bg3); }
+    .file-item.active {
+      background: var(--bg3);
+      border-color: var(--accent);
+    }
+    .file-env-pill {
+      font-size: 10px;
+      font-family: var(--font);
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      flex-shrink: 0;
+    }
+    .file-env-pill.base { border-color: var(--green); color: var(--green); }
+    .file-env-pill.dev  { border-color: var(--accent); color: var(--accent); }
+    .file-env-pill.prod { border-color: var(--red); color: var(--red); }
+    .file-env-pill.stg  { border-color: var(--yellow); color: var(--yellow); }
+    .file-name { font-size: 12px; font-family: var(--font); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-nav {
+      border-top: 1px solid var(--border);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 6px;
+      cursor: pointer; font-size: 13px; color: var(--text2);
+      transition: background .15s, color .15s;
+    }
+    .nav-item:hover { background: var(--bg3); color: var(--text); }
+    .nav-item.active { background: var(--bg3); color: var(--accent); }
+    .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+    /* ── Content area ──────────────────────────────────────────────────── */
+    .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .toolbar-title { font-family: var(--font); font-size: 13px; font-weight: 600; color: var(--text2); }
+    .toolbar-title strong { color: var(--text); }
+    .toolbar-sep { flex: 1; }
+
+    .panel { flex: 1; overflow-y: auto; padding: 16px; }
+
+    /* ── Buttons ───────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      transition: background .15s, opacity .15s;
+      border: 1px solid transparent;
+    }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent2); }
+    .btn-secondary { background: var(--bg3); color: var(--text); border-color: var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--border); }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-danger:hover:not(:disabled) { opacity: .85; }
+    .btn-ghost { color: var(--text2); }
+    .btn-ghost:hover { color: var(--text); background: var(--bg3); }
+    .btn-icon { padding: 6px 8px; font-size: 16px; }
+    .btn-sm { padding: 4px 8px; font-size: 12px; }
+
+    /* ── Search ────────────────────────────────────────────────────────── */
+    .search-wrap { position: relative; }
+    .search-wrap .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text2); pointer-events: none; }
+    .search-input {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 12px 6px 32px;
+      width: 240px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+
+    /* ── Toggle switch ─────────────────────────────────────────────────── */
+    .toggle-group { display: flex; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+    .toggle-btn { padding: 4px 12px; border-radius: 4px; font-size: 12px; color: var(--text2); transition: all .15s; }
+    .toggle-btn.active { background: var(--accent); color: #000; font-weight: 600; }
+
+    /* ── Tree view ─────────────────────────────────────────────────────── */
+    .tree { font-family: var(--font); font-size: 13px; }
+    .tree-node { }
+    .tree-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px; border-radius: 5px;
+      cursor: pointer; transition: background .1s;
+      group: tree-row;
+    }
+    .tree-row:hover { background: var(--bg3); }
+    .tree-row:hover .row-actions { opacity: 1; }
+    .tree-indent { flex-shrink: 0; }
+    .tree-toggle { width: 16px; color: var(--text2); flex-shrink: 0; font-size: 10px; }
+    .tree-key { color: var(--accent2); font-weight: 500; }
+    .tree-colon { color: var(--text2); margin: 0 4px; }
+    .tree-value { }
+    .tree-value.string { color: var(--green); }
+    .tree-value.number { color: var(--orange); }
+    .tree-value.boolean { color: var(--purple); }
+    .tree-value.null { color: var(--text2); font-style: italic; }
+    .tree-value.array { color: var(--yellow); }
+    .tree-value.masked { color: var(--text2); letter-spacing: 2px; }
+    .tree-type-badge {
+      font-size: 10px; color: var(--text2);
+      background: var(--bg); border: 1px solid var(--border);
+      padding: 0 5px; border-radius: 3px;
+    }
+    .row-actions {
+      margin-left: auto; display: flex; gap: 4px; opacity: 0;
+      transition: opacity .15s;
+    }
+    .row-actions .btn { padding: 2px 6px; font-size: 11px; }
+
+    /* ── Inline editor ─────────────────────────────────────────────────── */
+    .inline-editor {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg3); border: 1px solid var(--accent);
+      border-radius: 6px; padding: 6px 10px;
+      margin: 4px 0;
+    }
+    .inline-input {
+      flex: 1; background: transparent; border: none;
+      color: var(--text); outline: none; font-family: var(--font); font-size: 13px;
+    }
+
+    /* ── Raw editor ────────────────────────────────────────────────────── */
+    .raw-editor {
+      width: 100%; height: calc(100% - 20px);
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      padding: 16px;
+      resize: none;
+      outline: none;
+      line-height: 1.7;
+      tab-size: 2;
+      transition: border-color .15s;
+    }
+    .raw-editor:focus { border-color: var(--accent); }
+    .raw-editor-wrap { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+    .raw-editor-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ── Diff view ─────────────────────────────────────────────────────── */
+    .diff-controls { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 16px; flex-wrap: wrap; }
+    .field-group { display: flex; flex-direction: column; gap: 4px; }
+    .field-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; }
+    .select-input {
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 6px 12px;
+      font-size: 13px; outline: none; cursor: pointer;
+    }
+    .diff-table { width: 100%; border-collapse: collapse; font-family: var(--font); font-size: 12px; }
+    .diff-table th {
+      text-align: left; padding: 8px 12px;
+      background: var(--bg3); border-bottom: 1px solid var(--border);
+      color: var(--text2); font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+    }
+    .diff-table td { padding: 6px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .diff-table tr:hover td { background: var(--bg3); }
+    .diff-only-src { color: var(--green); }
+    .diff-only-tgt { color: var(--red); }
+    .diff-changed  { color: var(--yellow); }
+    .diff-same     { color: var(--text2); }
+
+    /* ── Swap / Move panel ─────────────────────────────────────────────── */
+    .swap-panel { display: flex; flex-direction: column; gap: 16px; max-width: 700px; }
+    .card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+    }
+    .card-title { font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 12px;
+      text-transform: uppercase; letter-spacing: .6px; }
+    .key-checkbox-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    .key-checkbox { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 5px 8px; border-radius: 5px; }
+    .key-checkbox:hover { background: var(--bg3); }
+    .key-checkbox input { accent-color: var(--accent); width: 14px; height: 14px; }
+    .key-checkbox-label { font-family: var(--font); font-size: 12px; color: var(--text); }
+
+    /* ── Toast ─────────────────────────────────────────────────────────── */
+    #toast-container {
+      position: fixed; bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; gap: 8px; z-index: 9999;
+    }
+    .toast {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 16px;
+      box-shadow: var(--shadow); min-width: 280px;
+      animation: slideIn .2s ease;
+    }
+    .toast.success { border-left: 3px solid var(--green); }
+    .toast.error   { border-left: 3px solid var(--red); }
+    .toast.warn    { border-left: 3px solid var(--yellow); }
+    @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    /* ── Modal ─────────────────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      display: flex; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .modal {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; width: 400px; max-width: 90vw;
+      box-shadow: var(--shadow);
+    }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .modal-body { color: var(--text2); font-size: 14px; margin-bottom: 20px; line-height: 1.6; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ── Add key form ──────────────────────────────────────────────────── */
+    .form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .form-field { display: flex; flex-direction: column; gap: 4px; }
+    .form-input {
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 7px 12px;
+      font-size: 13px; font-family: var(--font); outline: none;
+      transition: border-color .15s;
+    }
+    .form-input:focus { border-color: var(--accent); }
+
+    /* ── Loading ───────────────────────────────────────────────────────── */
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; height: 100%; color: var(--text2); }
+
+    /* ── Scrollbar ─────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+
+    /* ── Utils ─────────────────────────────────────────────────────────── */
+    .hidden { display: none !important; }
+    .text-muted { color: var(--text2); }
+    .text-green { color: var(--green); }
+    .text-red   { color: var(--red); }
+    .monospace  { font-family: var(--font); }
+    .ro-badge {
+      background: var(--yellow); color: #000;
+      font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 20px;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">⚙ Codekali<span>.Net.Config.UI</span></div>
+    <span class="header-badge" id="env-badge">dev</span>
+    <span class="ro-badge hidden" id="readonly-badge">READ ONLY</span>
+    <div class="header-actions">
+      <button class="btn btn-ghost btn-icon" title="Toggle theme" onclick="toggleTheme()">🌙</button>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/Codekali" target="_blank">GitHub</a>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- ── Sidebar ──────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-header">appsettings files</div>
+      <div class="file-list" id="file-list">
+        <div class="loading-center" style="height:120px"><div class="spinner"></div></div>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-item active" id="nav-editor" onclick="setView('editor')">
+          <span class="nav-icon">📝</span> Editor
+        </div>
+        <div class="nav-item" id="nav-swap" onclick="setView('swap')">
+          <span class="nav-icon">⇄</span> Move / Copy
+        </div>
+        <div class="nav-item" id="nav-diff" onclick="setView('diff')">
+          <span class="nav-icon">⊞</span> Compare
+        </div>
+      </nav>
+    </aside>
+
+    <!-- ── Content ──────────────────────────────────────────────────── -->
+    <div class="content">
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <span class="toolbar-title" id="toolbar-title">Select a file</span>
+        <div class="toolbar-sep"></div>
+
+        <!-- Editor toolbar -->
+        <div id="editor-toolbar" class="hidden" style="display:flex;gap:8px;align-items:center">
+          <div class="search-wrap">
+            <span class="icon">🔍</span>
+            <input class="search-input" id="search-input" placeholder="Search keys…" oninput="onSearch()" />
+          </div>
+          <div class="toggle-group">
+            <button class="toggle-btn active" id="toggle-tree" onclick="setEditorMode('tree')">Tree</button>
+            <button class="toggle-btn" id="toggle-raw"  onclick="setEditorMode('raw')">Raw JSON</button>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="refreshFile()">↻ Refresh</button>
+          <button class="btn btn-primary btn-sm" id="add-btn" onclick="showAddForm()">+ Add Key</button>
+        </div>
+      </div>
+
+      <!-- Add Key Form (collapsible) -->
+      <div id="add-form" class="hidden" style="padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border);">
+        <div class="form-row">
+          <div class="form-field">
+            <span class="field-label">Key Path (colon-separated)</span>
+            <input class="form-input" id="add-key" placeholder="e.g. ConnectionStrings:Default" style="width:280px" />
+          </div>
+          <div class="form-field">
+            <span class="field-label">JSON Value</span>
+            <input class="form-input" id="add-value" placeholder='"value" or 123 or true or {...}' style="width:260px" />
+          </div>
+          <button class="btn btn-primary" onclick="submitAdd()">Add</button>
+          <button class="btn btn-ghost" onclick="hideAddForm()">Cancel</button>
+        </div>
+      </div>
+
+      <!-- ── Editor panel ──────────────────────────────────────────── -->
+      <div class="panel" id="view-editor">
+        <div class="loading-center" id="editor-loading">
+          <div class="spinner"></div><span>Select a file from the sidebar</span>
+        </div>
+        <!-- Tree view -->
+        <div id="tree-view" class="tree hidden"></div>
+        <!-- Raw view -->
+        <div id="raw-view" class="raw-editor-wrap hidden">
+          <div class="raw-editor-actions">
+            <span class="text-muted" style="font-size:12px;font-family:var(--font)">Edit raw JSON — changes require an explicit save</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-secondary btn-sm" onclick="formatRaw()">Format</button>
+            <button class="btn btn-primary btn-sm" onclick="saveRaw()">💾 Save</button>
+          </div>
+          <textarea class="raw-editor" id="raw-editor-ta" spellcheck="false"></textarea>
+        </div>
+      </div>
+
+      <!-- ── Swap panel ─────────────────────────────────────────────── -->
+      <div class="panel hidden" id="view-swap">
+        <div class="swap-panel">
+          <div class="card">
+            <div class="card-title">Move or Copy configuration keys between environment files</div>
+            <div class="diff-controls">
+              <div class="form-field">
+                <span class="field-label">Source file</span>
+                <select class="select-input" id="swap-source" onchange="loadSwapKeys()"></select>
+              </div>
+              <div class="form-field">
+                <span class="field-label">Operation</span>
+                <select class="select-input" id="swap-op">
+                  <option value="Copy">Copy (keep in source)</option>
+                  <option value="Move">Move (remove from source)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <span class="field-label">Target file</span>
+                <select class="select-input" id="swap-target"></select>
+              </div>
+            </div>
+            <div class="field-label" style="margin-bottom:6px">Select keys to move/copy</div>
+            <div class="key-checkbox-list" id="swap-keys">
+              <span class="text-muted" style="font-size:12px;padding:8px">Select a source file to see keys</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" id="swap-overwrite" style="accent-color:var(--accent)"> Overwrite existing keys in target
+            </label>
+            <div style="flex:1"></div>
+            <button class="btn btn-primary" onclick="executeSwap()">Execute ⇄</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Diff panel ─────────────────────────────────────────────── -->
+      <div class="panel hidden" id="view-diff">
+        <div class="diff-controls">
+          <div class="form-field">
+            <span class="field-label">Source file</span>
+            <select class="select-input" id="diff-source"></select>
+          </div>
+          <div class="form-field">
+            <span class="field-label">Target file</span>
+            <select class="select-input" id="diff-target"></select>
+          </div>
+          <button class="btn btn-primary" onclick="runDiff()">Compare ⊞</button>
+        </div>
+        <div id="diff-result"></div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- Modal -->
+<div class="modal-backdrop hidden" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config injected by middleware ──────────────────────────────────────────
+const API_BASE = '__CONFIG_UI_PATH_PREFIX__/api';
+const READ_ONLY = '__CONFIG_UI_READONLY__' === 'true';
+
+// ── State ─────────────────────────────────────────────────────────────────
+let files = [];
+let currentFile = null;
+let currentEntries = [];
+let expandedKeys = new Set();
+let revealedKeys = new Set();
+let searchQuery = '';
+let editorMode = 'tree'; // 'tree' | 'raw'
+let currentView = 'editor';
+let pendingConfirm = null;
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  if (READ_ONLY) {
+    document.getElementById('readonly-badge').classList.remove('hidden');
+    document.getElementById('add-btn').disabled = true;
+  }
+  await loadFileList();
+});
+
+// ── API helpers ───────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(API_BASE + path, opts);
+  return res.json();
+}
+
+// ── File list ─────────────────────────────────────────────────────────────
+async function loadFileList() {
+  const r = await api('GET', '/files');
+  if (!r.success) { toast('Failed to load files: ' + r.error, 'error'); return; }
+  files = r.data;
+  renderFileList();
+  populateSwapDiffSelects();
+}
+
+function renderFileList() {
+  const el = document.getElementById('file-list');
+  if (!files.length) { el.innerHTML = '<div class="text-muted" style="padding:12px;font-size:12px">No appsettings files found.</div>'; return; }
+  el.innerHTML = files.map(f => {
+    const env = f.environment;
+    const cls = env === 'Base' ? 'base' : env === 'Development' ? 'dev' : env === 'Production' ? 'prod' : env === 'Staging' ? 'stg' : '';
+    const isActive = currentFile && currentFile.fileName === f.fileName;
+    return `<div class="file-item ${isActive ? 'active' : ''}" onclick="selectFile('${f.fileName}')">
+      <span class="file-env-pill ${cls}">${env.slice(0,4)}</span>
+      <span class="file-name" title="${f.fileName}">${f.fileName}</span>
+    </div>`;
+  }).join('');
+}
+
+async function selectFile(fileName) {
+  currentFile = files.find(f => f.fileName === fileName);
+  expandedKeys.clear(); revealedKeys.clear(); searchQuery = '';
+  document.getElementById('search-input').value = '';
+  renderFileList();
+  document.getElementById('editor-toolbar').style.display = 'flex';
+  document.getElementById('editor-toolbar').classList.remove('hidden');
+  document.getElementById('toolbar-title').innerHTML =
+    `<strong>${fileName}</strong> <span class="text-muted monospace" style="font-size:11px">— ${currentFile.environment}</span>`;
+  await loadEntries();
+}
+
+// ── Entries ───────────────────────────────────────────────────────────────
+async function loadEntries() {
+  showEditorLoading(true);
+  if (editorMode === 'tree') {
+    const r = await api('GET', `/files/${enc(currentFile.fileName)}/entries`);
+    if (!r.success) { toast(r.error, 'error'); showEditorLoading(false); return; }
+    currentEntries = r.data;
+    renderTree();
+  } else {
+    const r = await api('GET', `/files/${enc(currentFile.fileName)}/raw`);
+    if (!r.success) { toast(r.error, 'error'); showEditorLoading(false); return; }
+    document.getElementById('raw-editor-ta').value = r.data;
+    showEditorLoading(false);
+    document.getElementById('raw-view').classList.remove('hidden');
+  }
+}
+
+async function refreshFile() { if (currentFile) await loadEntries(); }
+
+// ── Tree rendering ────────────────────────────────────────────────────────
+function renderTree() {
+  const container = document.getElementById('tree-view');
+  const filtered = searchQuery ? filterEntries(currentEntries, searchQuery) : currentEntries;
+  container.innerHTML = filtered.length
+    ? renderNodes(filtered, 0)
+    : '<div class="text-muted" style="padding:16px;font-size:13px">No keys match your search.</div>';
+  showEditorLoading(false);
+  container.classList.remove('hidden');
+}
+
+function renderNodes(nodes, depth) {
+  return nodes.map(n => renderNode(n, depth)).join('');
+}
+
+function renderNode(node, depth) {
+  const indent = depth * 20;
+  const isObj = node.valueType === 'object';
+  const isExpanded = expandedKeys.has(nodeId(node, depth));
+  const id = nodeId(node, depth);
+  const isRevealed = revealedKeys.has(id);
+
+  let valueHtml = '';
+  if (!isObj) {
+    let displayVal = node.isMasked && !isRevealed ? '••••••••' : (node.rawValue ?? 'null');
+    let cls = node.valueType;
+    if (node.isMasked && !isRevealed) cls = 'masked';
+    if (node.valueType === 'string' && !node.isMasked) displayVal = displayVal;
+    valueHtml = `<span class="tree-colon">:</span><span class="tree-value ${cls}">${escHtml(displayVal)}</span>`;
+    if (node.isMasked) {
+      valueHtml += `<button class="btn btn-ghost btn-sm" onclick="toggleReveal('${id}',event)" style="margin-left:6px;padding:1px 5px;font-size:11px">${isRevealed ? '🙈 hide' : '👁 reveal'}</button>`;
+    }
+  }
+
+  const toggleHtml = isObj
+    ? `<span class="tree-toggle">${isExpanded ? '▾' : '▸'}</span>`
+    : `<span class="tree-toggle"></span>`;
+
+  const actions = READ_ONLY ? '' : `
+    <span class="row-actions">
+      ${!isObj ? `<button class="btn btn-secondary btn-sm" onclick="startEdit('${escAttr(node.key)}', '${escAttr(node.rawValue ?? '')}', event)">✎ edit</button>` : ''}
+      <button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(node.key)}', event)">✕</button>
+    </span>`;
+
+  let childHtml = '';
+  if (isObj && isExpanded && node.children?.length) {
+    childHtml = `<div>${renderNodes(node.children, depth + 1)}</div>`;
+  }
+
+  const rowClick = isObj ? `onclick="toggleExpand('${id}', event)"` : '';
+
+  return `<div class="tree-node" data-key="${escAttr(node.key)}">
+    <div class="tree-row" style="padding-left:${8 + indent}px" ${rowClick} id="row-${id}">
+      ${toggleHtml}
+      <span class="tree-key">${escHtml(node.key)}</span>
+      ${valueHtml}
+      ${isObj ? `<span class="tree-type-badge" style="margin-left:6px">{${node.children?.length ?? 0}}</span>` : ''}
+      ${actions}
+    </div>
+    ${childHtml}
+    <div id="editor-${id}" class="hidden"></div>
+  </div>`;
+}
+
+function nodeId(node, depth) {
+  return `${depth}_${node.key}`.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+function toggleExpand(id, e) {
+  e.stopPropagation();
+  if (expandedKeys.has(id)) expandedKeys.delete(id); else expandedKeys.add(id);
+  renderTree();
+}
+
+function toggleReveal(id, e) {
+  e.stopPropagation();
+  if (revealedKeys.has(id)) revealedKeys.delete(id); else revealedKeys.add(id);
+  renderTree();
+}
+
+function onSearch() {
+  searchQuery = document.getElementById('search-input').value.trim().toLowerCase();
+  if (currentFile) renderTree();
+}
+
+function filterEntries(entries, q) {
+  const result = [];
+  for (const e of entries) {
+    if (e.key.toLowerCase().includes(q) || (e.rawValue ?? '').toLowerCase().includes(q)) {
+      result.push(e);
+    } else if (e.children?.length) {
+      const filteredChildren = filterEntries(e.children, q);
+      if (filteredChildren.length) result.push({ ...e, children: filteredChildren });
+    }
+  }
+  return result;
+}
+
+// ── Inline edit ───────────────────────────────────────────────────────────
+function startEdit(key, rawValue, e) {
+  e.stopPropagation();
+  // Find the editor slot for this key (simple approach: match by key)
+  const rows = document.querySelectorAll('.tree-row');
+  let editorId = null;
+  rows.forEach(row => {
+    const k = row.querySelector('.tree-key')?.textContent;
+    if (k === key) {
+      const node = row.closest('.tree-node');
+      editorId = node?.querySelector('[id^="editor-"]')?.id;
+    }
+  });
+  if (!editorId) return;
+  const slot = document.getElementById(editorId);
+  if (!slot) return;
+  slot.innerHTML = `
+    <div class="inline-editor" style="margin:4px 8px 4px ${8 + 20}px">
+      <span class="tree-key monospace" style="font-size:12px;margin-right:4px">${escHtml(key)}</span>
+      <input class="inline-input" id="edit-input-${editorId}" value="${escAttr(rawValue)}" />
+      <button class="btn btn-primary btn-sm" onclick="submitEdit('${escAttr(key)}', '${editorId}')">Save</button>
+      <button class="btn btn-ghost btn-sm" onclick="cancelEdit('${editorId}')">✕</button>
+    </div>`;
+  slot.classList.remove('hidden');
+  document.getElementById('edit-input-' + editorId)?.focus();
+}
+
+async function submitEdit(key, editorId) {
+  const input = document.getElementById('edit-input-' + editorId);
+  const val = input?.value ?? '';
+  const r = await api('PUT', `/files/${enc(currentFile.fileName)}/entries`, { keyPath: key, jsonValue: val });
+  if (r.success) { toast('Key updated ✓', 'success'); await loadEntries(); }
+  else toast(r.error, 'error');
+}
+
+function cancelEdit(editorId) {
+  const slot = document.getElementById(editorId);
+  if (slot) { slot.innerHTML = ''; slot.classList.add('hidden'); }
+}
+
+// ── Add key ───────────────────────────────────────────────────────────────
+function showAddForm() { document.getElementById('add-form').classList.remove('hidden'); }
+function hideAddForm() { document.getElementById('add-form').classList.add('hidden'); }
+
+async function submitAdd() {
+  const key = document.getElementById('add-key').value.trim();
+  const val = document.getElementById('add-value').value.trim();
+  if (!key) { toast('Key path is required', 'warn'); return; }
+  if (!currentFile) { toast('Select a file first', 'warn'); return; }
+  const r = await api('POST', `/files/${enc(currentFile.fileName)}/entries`, { keyPath: key, jsonValue: val });
+  if (r.success) {
+    toast('Key added ✓', 'success');
+    document.getElementById('add-key').value = '';
+    document.getElementById('add-value').value = '';
+    hideAddForm();
+    await loadEntries();
+  } else toast(r.error, 'error');
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────
+function confirmDelete(key, e) {
+  e.stopPropagation();
+  showModal(
+    'Delete key?',
+    `Are you sure you want to delete <strong class="monospace">${escHtml(key)}</strong> from <strong>${currentFile.fileName}</strong>? A backup will be created automatically.`,
+    async () => {
+      const r = await api('DELETE', `/files/${enc(currentFile.fileName)}/entries/${enc(key)}`);
+      if (r.success) { toast('Key deleted ✓', 'success'); await loadEntries(); }
+      else toast(r.error, 'error');
+    }
+  );
+}
+
+// ── Raw editor ────────────────────────────────────────────────────────────
+function setEditorMode(mode) {
+  editorMode = mode;
+  document.getElementById('toggle-tree').classList.toggle('active', mode === 'tree');
+  document.getElementById('toggle-raw').classList.toggle('active', mode === 'raw');
+  document.getElementById('tree-view').classList.add('hidden');
+  document.getElementById('raw-view').classList.add('hidden');
+  if (currentFile) loadEntries();
+}
+
+function formatRaw() {
+  const ta = document.getElementById('raw-editor-ta');
+  try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); }
+  catch { toast('Invalid JSON — cannot format', 'error'); }
+}
+
+async function saveRaw() {
+  const content = document.getElementById('raw-editor-ta').value;
+  try { JSON.parse(content); } catch { toast('Invalid JSON — fix errors before saving', 'error'); return; }
+  const r = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
+  if (r.success) toast('Saved ✓', 'success');
+  else toast(r.error, 'error');
+}
+
+// ── View switching ────────────────────────────────────────────────────────
+function setView(v) {
+  currentView = v;
+  ['editor','swap','diff'].forEach(id => {
+    document.getElementById('view-' + id).classList.toggle('hidden', id !== v);
+    document.getElementById('nav-' + id).classList.toggle('active', id === v);
+  });
+  document.getElementById('editor-toolbar').classList.toggle('hidden', v !== 'editor');
+  if (v === 'editor') {
+    document.getElementById('toolbar-title').innerHTML = currentFile
+      ? `<strong>${currentFile.fileName}</strong>`
+      : 'Select a file';
+  } else if (v === 'swap') {
+    document.getElementById('toolbar-title').innerHTML = '<strong>Move / Copy Keys</strong>';
+  } else if (v === 'diff') {
+    document.getElementById('toolbar-title').innerHTML = '<strong>Compare Files</strong>';
+  }
+}
+
+// ── Swap ──────────────────────────────────────────────────────────────────
+function populateSwapDiffSelects() {
+  ['swap-source','swap-target','diff-source','diff-target'].forEach(id => {
+    const el = document.getElementById(id);
+    el.innerHTML = files.map(f => `<option value="${escAttr(f.fileName)}">${f.fileName}</option>`).join('');
+  });
+  if (files.length > 1) {
+    document.getElementById('swap-target').selectedIndex = 1;
+    document.getElementById('diff-target').selectedIndex = 1;
+  }
+}
+
+async function loadSwapKeys() {
+  const source = document.getElementById('swap-source').value;
+  const r = await api('GET', `/files/${enc(source)}/entries`);
+  const container = document.getElementById('swap-keys');
+  if (!r.success) { container.innerHTML = `<span class="text-red">${r.error}</span>`; return; }
+  const flat = flattenEntries(r.data);
+  if (!flat.length) { container.innerHTML = '<span class="text-muted">No keys found.</span>'; return; }
+  container.innerHTML = flat.map(k =>
+    `<label class="key-checkbox">
+      <input type="checkbox" value="${escAttr(k)}" />
+      <span class="key-checkbox-label">${escHtml(k)}</span>
+    </label>`
+  ).join('');
+}
+
+function flattenEntries(entries, prefix = '') {
+  const result = [];
+  for (const e of entries) {
+    const fullKey = prefix ? `${prefix}:${e.key}` : e.key;
+    if (e.valueType === 'object' && e.children?.length) {
+      result.push(...flattenEntries(e.children, fullKey));
+    } else {
+      result.push(fullKey);
+    }
+  }
+  return result;
+}
+
+async function executeSwap() {
+  const source = document.getElementById('swap-source').value;
+  const target = document.getElementById('swap-target').value;
+  const op = document.getElementById('swap-op').value;
+  const overwrite = document.getElementById('swap-overwrite').checked;
+  const keys = [...document.querySelectorAll('#swap-keys input:checked')].map(i => i.value);
+  if (!keys.length) { toast('Select at least one key', 'warn'); return; }
+  if (source === target) { toast('Source and target must be different', 'warn'); return; }
+
+  showModal(
+    `${op} ${keys.length} key(s)?`,
+    `<strong>${op}</strong> the selected key(s) from <strong>${source}</strong> to <strong>${target}</strong>?<br>Backups will be created automatically.`,
+    async () => {
+      const r = await api('POST', '/swap', { sourceFile: source, targetFile: target, keys, operation: op, overwriteExisting: overwrite });
+      if (r.success) { toast(`${op} complete ✓`, 'success'); await loadFileList(); }
+      else toast(r.error, 'error');
+    }
+  );
+}
+
+// ── Diff ──────────────────────────────────────────────────────────────────
+async function runDiff() {
+  const source = document.getElementById('diff-source').value;
+  const target = document.getElementById('diff-target').value;
+  const r = await api('GET', `/diff?source=${enc(source)}&target=${enc(target)}`);
+  const container = document.getElementById('diff-result');
+  if (!r.success) { container.innerHTML = `<div class="text-red">${r.error}</div>`; return; }
+  const d = r.data;
+
+  const rows = [
+    ...d.onlyInSource.map(k => `<tr><td class="diff-only-src monospace">${escHtml(k)}</td><td class="diff-only-src">Only in source</td><td>—</td></tr>`),
+    ...d.onlyInTarget.map(k => `<tr><td class="diff-only-tgt monospace">${escHtml(k)}</td><td>—</td><td class="diff-only-tgt">Only in target</td></tr>`),
+    ...d.valueDifferences.map(e => `<tr><td class="diff-changed monospace">${escHtml(e.key)}</td><td class="diff-changed">${escHtml(e.sourceValue ?? 'null')}</td><td class="diff-changed">${escHtml(e.targetValue ?? 'null')}</td></tr>`),
+    ...d.identical.map(k => `<tr><td class="diff-same monospace">${escHtml(k)}</td><td colspan="2" class="diff-same">identical</td></tr>`)
+  ];
+
+  container.innerHTML = rows.length
+    ? `<table class="diff-table"><thead><tr><th>Key</th><th>${escHtml(source)}</th><th>${escHtml(target)}</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+    : '<div class="text-muted" style="padding:16px">Files are identical.</div>';
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────
+function showEditorLoading(show) {
+  document.getElementById('editor-loading').style.display = show ? 'flex' : 'none';
+  document.getElementById('tree-view').classList.toggle('hidden', show || editorMode !== 'tree');
+  document.getElementById('raw-view').classList.toggle('hidden', show || editorMode !== 'raw');
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  document.querySelector('[onclick="toggleTheme()"]').textContent = isDark ? '🌕' : '🌙';
+}
+
+function toast(msg, type = 'success', dur = 3000) {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${type === 'success' ? '✓' : type === 'error' ? '✕' : '⚠'}</span> <span>${escHtml(msg)}</span>`;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), dur);
+}
+
+function showModal(title, body, onConfirm) {
+  document.getElementById('modal-title').innerHTML = title;
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-backdrop').classList.remove('hidden');
+  pendingConfirm = onConfirm;
+  const btn = document.getElementById('modal-confirm');
+  btn.onclick = async () => { closeModal(); await onConfirm(); };
+}
+function closeModal() { document.getElementById('modal-backdrop').classList.add('hidden'); pendingConfirm = null; }
+
+function enc(s) { return encodeURIComponent(s); }
+function escHtml(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(s) { return String(s ?? '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+</script>
+</body>
+</html>
