@@ -183,13 +183,6 @@ internal sealed class AppSettingsService : IAppSettingsService
         if (validationError is not null)
             return OperationResult.Failure($"Invalid JSON: {validationError}");
 
-        var backupResult = await _backupService.CreateBackupAsync(fileName, ct).ConfigureAwait(false);
-        if (!backupResult.IsSuccess)
-        {
-            _logger.LogWarning("Backup failed before save: {Error}", backupResult.Error);
-            // Non-fatal: proceed
-        }
-
         try
         {
             var fullPath = _repository.ResolvePath(fileName);
@@ -224,11 +217,8 @@ internal sealed class AppSettingsService : IAppSettingsService
     private async Task<OperationResult> PersistAsync(
         string fileName, JsonObject root, CancellationToken ct)
     {
-        // Always back up before writing
-        var backup = await _backupService.CreateBackupAsync(fileName, ct).ConfigureAwait(false);
-        if (!backup.IsSuccess)
-            _logger.LogWarning("Backup failed before write: {Error}", backup.Error);
-
+        // Backup is NOT triggered here automatically.
+        // Users trigger backups explicitly via the "Create Backup" button in the UI.
         var fullPath = _repository.ResolvePath(fileName);
         await _repository.WriteAllTextAsync(fullPath, JsonHelper.Serialize(root), ct)
             .ConfigureAwait(false);

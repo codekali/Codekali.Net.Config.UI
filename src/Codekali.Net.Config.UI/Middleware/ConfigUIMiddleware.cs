@@ -23,7 +23,8 @@ public sealed class ConfigUIMiddleware
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        WriteIndented = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
     public ConfigUIMiddleware(
@@ -144,6 +145,19 @@ public sealed class ConfigUIMiddleware
             {
                 var fileName = Uri.UnescapeDataString(parts[1]);
                 var result = await backupSvc.ListBackupsAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+                await RespondAsync(ctx, result).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        // POST api/files/{fileName}/backup  — explicit on-demand backup
+        if (method == "POST" && apiPath.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = apiPath.Split('/');
+            if (parts.Length >= 3 && parts[2].Equals("backup", StringComparison.OrdinalIgnoreCase))
+            {
+                var fileName = Uri.UnescapeDataString(parts[1]);
+                var result = await backupSvc.CreateBackupAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
                 await RespondAsync(ctx, result).ConfigureAwait(false);
                 return;
             }
