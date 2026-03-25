@@ -184,13 +184,55 @@ public class AppSettingsServiceTests
         repo.Verify(r => r.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // ── Backup is triggered on every write ────────────────────────────────
+    // ── Backup is explicit-only (not automatic on write) ──────────────────
 
     [Fact]
-    public async Task AddEntryAsync_AlwaysCreatesBackupBeforeWrite()
+    public async Task AddEntryAsync_DoesNotAutoCreateBackup()
+    {
+        // Backup is user-triggered, not automatic on write.
+        // This test guards against the behaviour being reintroduced.
+        var (svc, _, backup) = BuildSut();
+
+        await svc.AddEntryAsync("appsettings.json", "AnotherKey", "1");
+
+        backup.Verify(
+            b => b.CreateBackupAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateEntryAsync_DoesNotAutoCreateBackup()
     {
         var (svc, _, backup) = BuildSut();
-        await svc.AddEntryAsync("appsettings.json", "AnotherKey", "1");
-        backup.Verify(b => b.CreateBackupAsync("appsettings.json", It.IsAny<CancellationToken>()), Times.Once);
+
+        await svc.UpdateEntryAsync("appsettings.json", "AppName", "\"Changed\"");
+
+        backup.Verify(
+            b => b.CreateBackupAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteEntryAsync_DoesNotAutoCreateBackup()
+    {
+        var (svc, _, backup) = BuildSut();
+
+        await svc.DeleteEntryAsync("appsettings.json", "AppName");
+
+        backup.Verify(
+            b => b.CreateBackupAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task SaveRawJsonAsync_DoesNotAutoCreateBackup()
+    {
+        var (svc, _, backup) = BuildSut();
+
+        await svc.SaveRawJsonAsync("appsettings.json", """{"Fresh":"value"}""");
+
+        backup.Verify(
+            b => b.CreateBackupAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }
