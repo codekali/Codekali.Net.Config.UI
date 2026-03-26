@@ -29,6 +29,10 @@
     <EmbeddedResource Include="UI\wwwroot\**\*" />
   </ItemGroup>
 
+	<ItemGroup Condition="'$(Configuration)' == 'Release'">
+		<PackageReference Include="BuildBundlerMinifier" Version="3.2.449" />
+	</ItemGroup>
+
 	<!-- Grant the test project access to internal types (services are internal sealed by design) -->
 	<ItemGroup>
 		<InternalsVisibleTo Include="Codekali.Net.Config.UI.Tests" />

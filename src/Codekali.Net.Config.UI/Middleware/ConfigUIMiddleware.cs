@@ -24,7 +24,14 @@ public sealed class ConfigUIMiddleware
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
+        // Serialize enums as strings so the browser receives "object", "string" etc.
+        // instead of integer ordinals (0, 1, 2 ...) which the JS cannot pattern-match.
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
+    private static readonly JsonSerializerOptions readBodyJsonSerializationOptions = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
     };
 
     public ConfigUIMiddleware(
@@ -146,6 +153,54 @@ public sealed class ConfigUIMiddleware
                 var fileName = Uri.UnescapeDataString(parts[1]);
                 var result = await backupSvc.ListBackupsAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
                 await RespondAsync(ctx, result).ConfigureAwait(false);
+                return;
+            }
+
+            // GET api/files/{fileName}/value?key={keyPath} — fetch a single unmasked value on demand
+            if (parts.Length >= 3 && parts[2].Equals("value", StringComparison.OrdinalIgnoreCase))
+            {
+                var fileName = Uri.UnescapeDataString(parts[1]);
+                var keyPath = ctx.Request.Query["key"].ToString();
+
+                if (string.IsNullOrWhiteSpace(keyPath))
+                {
+                    await BadRequest(ctx, "Missing 'key' query parameter.").ConfigureAwait(false);
+                    return;
+                }
+
+                var rawResult = await svc.GetRawJsonAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+                if (!rawResult.IsSuccess)
+                {
+                    await RespondAsync(ctx, rawResult).ConfigureAwait(false);
+                    return;
+                }
+
+                var root = Services.JsonHelper.ParseObject(rawResult.Value!);
+                if (root is null)
+                {
+                    ctx.Response.StatusCode = 400;
+                    await WriteJsonAsync(ctx, new { success = false, error = "Invalid JSON in file." }).ConfigureAwait(false);
+                    return;
+                }
+
+                var node = Services.JsonHelper.GetNode(root, keyPath);
+                if (node is null)
+                {
+                    ctx.Response.StatusCode = 404;
+                    await WriteJsonAsync(ctx, new { success = false, error = $"Key '{keyPath}' not found." }).ConfigureAwait(false);
+                    return;
+                }
+
+                // Extract the plain string value — strip JSON quotes so the browser
+                // receives the raw value e.g. "dev_pk_xxx" not ""dev_pk_xxx""
+                string plainValue;
+                if (node is System.Text.Json.Nodes.JsonValue jv && jv.TryGetValue<string>(out var s))
+                    plainValue = s;   // already unquoted
+                else
+                    plainValue = node.ToJsonString();  // number, bool, object, array
+
+                ctx.Response.StatusCode = 200;
+                await WriteJsonAsync(ctx, new { success = true, data = plainValue }).ConfigureAwait(false);
                 return;
             }
         }
@@ -272,7 +327,7 @@ public sealed class ConfigUIMiddleware
 
     private async Task ServeIndexHtmlAsync(HttpContext ctx)
     {
-        var html = ReadEmbeddedResource("UI.wwwroot.index.html");
+        var html = ReadEmbeddedResource("UI.wwwroot.Index.html");
         if (html is null)
         {
             ctx.Response.StatusCode = 404;
@@ -380,7 +435,7 @@ public sealed class ConfigUIMiddleware
         {
             return await JsonSerializer.DeserializeAsync<T>(
                 ctx.Request.Body,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+                readBodyJsonSerializationOptions,
                 ctx.RequestAborted).ConfigureAwait(false);
         }
         catch
