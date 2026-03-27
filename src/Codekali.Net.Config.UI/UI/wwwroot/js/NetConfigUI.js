@@ -15,7 +15,7 @@ const _token = new URLSearchParams(window.location.search).get('token') || '';
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-   if (READ_ONLY) {
+   if (window.READONLY) {
       document.getElementById('readonly-badge').classList.remove('hidden');
       document.getElementById('add-btn').disabled = true;
       document.getElementById('backup-btn').disabled = true;
@@ -243,7 +243,7 @@ function renderNode(node, depth, parentPath) {
 
    const dblClick = window.READONLY ? '' : `ondblclick="startEdit('${escAttr(fullPath)}',${isObj},event)"`;
    return `<div class="tree-node">
-            <div class="tree-row" style="padding-left:${8 + indent}px;cursor:${READ_ONLY ? 'default' : 'pointer'}" ${rowClick} ${dblClick}
+            <div class="tree-row" style="padding-left:${8 + indent}px;cursor:${window.READONLY ? 'default' : 'pointer'}" ${rowClick} ${dblClick}
               title="${window.READONLY ? '' : 'Double-click to edit'}">
               ${toggleHtml}
               <span class="tree-key">${escHtml(node.key)}</span>

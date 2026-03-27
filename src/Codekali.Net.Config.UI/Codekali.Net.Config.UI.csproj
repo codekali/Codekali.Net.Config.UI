@@ -11,7 +11,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Codekali</Authors>
     <Company>Codekali</Company>
     <Product>Codekali.Net.Config.UI</Product>
@@ -22,6 +22,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <Title>Codekali.Net.Config.UI</Title>
+    <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
   <!-- Embed all wwwroot files as resources so the middleware can serve them without file system access -->
