@@ -7,14 +7,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddConfigUI();
 
 // Option B: custom settings — uncomment to use instead
-// builder.Services.AddConfigUI(options =>
-// {
-//     options.PathPrefix          = "/config-ui";
-//     options.AccessToken         = "super-secret-dev-token";
-//     options.AllowedEnvironments = ["Development", "Staging"];
-//     options.MaskSensitiveValues = true;
-//     options.ReadOnly            = false;
-// });
+/*builder.Services.AddConfigUI(options =>
+{
+    options.PathPrefix = "/config-ui";
+    options.AccessToken = "super-secret-dev-token";
+    options.AllowedEnvironments = ["Development", "Staging"];
+    options.MaskSensitiveValues = true;
+    options.ReadOnly = false;
+});*/
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -31,11 +31,7 @@ if (app.Environment.IsDevelopment())
 // Must be called AFTER builder.Services.AddConfigUI() above.
 app.UseConfigUI();
 
-app.MapGet("/", () => Results.Ok(new
-{
-    message = "SampleWebApp is running",
-    configUI = "/config-ui"
-}));
+app.MapGet("/", () => Results.Redirect("/config-ui"));
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 

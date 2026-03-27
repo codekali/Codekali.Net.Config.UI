@@ -1,7 +1,4 @@
-﻿// ── Injected by middleware ─────────────────────────────────────────────────
-const READ_ONLY = '__CONFIG_UI_READONLY__' === 'true';
-
-// ── State ─────────────────────────────────────────────────────────────────
+﻿// ── State ─────────────────────────────────────────────────────────────────
 let files = [];
 let currentFile = null;
 let currentEntries = [];   // raw API response — nested tree from server
@@ -20,8 +17,8 @@ const _token = new URLSearchParams(window.location.search).get('token') || '';
 document.addEventListener('DOMContentLoaded', async () => {
    if (READ_ONLY) {
       document.getElementById('readonly-badge').classList.remove('hidden');
-      /*document.getElementById('add-btn').disabled = true;
-      document.getElementById('backup-btn').disabled = true;*/
+      document.getElementById('add-btn').disabled = true;
+      document.getElementById('backup-btn').disabled = true;
    }
    await loadFileList();
 });
@@ -233,7 +230,7 @@ function renderNode(node, depth, parentPath) {
    // Edit is triggered by double-click on the row (see ondblclick on tree-row below).
    // Only a delete button remains visible on hover.
    let actions = '';
-   if (!READ_ONLY) {
+   if (!window.READONLY) {
       const delBtn = `<button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)">✕</button>`;
       actions = `<span class="row-actions">${delBtn}</span>`;
    }
@@ -244,10 +241,10 @@ function renderNode(node, depth, parentPath) {
       childHtml = `<div>${renderNodes(node.children, depth + 1, fullPath)}</div>`;
    }
 
-   const dblClick = READ_ONLY ? '' : `ondblclick="startEdit('${escAttr(fullPath)}',${isObj},event)"`;
+   const dblClick = window.READONLY ? '' : `ondblclick="startEdit('${escAttr(fullPath)}',${isObj},event)"`;
    return `<div class="tree-node">
             <div class="tree-row" style="padding-left:${8 + indent}px;cursor:${READ_ONLY ? 'default' : 'pointer'}" ${rowClick} ${dblClick}
-              title="${READ_ONLY ? '' : 'Double-click to edit'}">
+              title="${window.READONLY ? '' : 'Double-click to edit'}">
               ${toggleHtml}
               <span class="tree-key">${escHtml(node.key)}</span>
               ${valueHtml}
