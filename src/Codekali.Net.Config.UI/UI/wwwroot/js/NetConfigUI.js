@@ -10,6 +10,7 @@ let searchQuery = '';
 let editorMode = 'tree';
 let currentView = 'editor';
 const revealedValues = {};
+const _token = new URLSearchParams(window.location.search).get('token') ?? '';
 
 // ── Monaco state ──────────────────────────────────────────────────────────
 let _monacoInstance = null;
@@ -29,11 +30,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── API ───────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
-   const sep = path.includes('?') ? '&' : '?';
-   const url = window.CONFIG_UI_API_BASE + path + (_token ? `${sep}token=${encodeURIComponent(_token)}` : '');
+   const url = window.CONFIG_UI_API_BASE + path;
    const opts = { method, headers: { 'Content-Type': 'application/json' } };
    if (body !== undefined) opts.body = JSON.stringify(body);
-   if (_token) opts.headers['X-Config-Token'] = _token;
+   if (_token) {
+   const sep = path.includes('?') ? '&' : '?';
+      opts.headers['X-Config-Token'] = _token;
+      url += `${sep}token=${encodeURIComponent(_token)}`;
+   }
    const res = await fetch(url, opts);
    return res.json();
 }
