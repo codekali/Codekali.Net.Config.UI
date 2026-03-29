@@ -567,13 +567,71 @@ header {
     min-width: 0
 }
 
-/* ── Raw editor ── */
+/* ── Raw editor — Monaco container ── */
+
+/*
+ * .raw-editor-wrap
+ *   The outer flex column that holds the toolbar row and the editor below it.
+ *   Uses height:100% so the editor fills the remaining panel space.
+ *   overflow:hidden prevents the Monaco scrollbar from doubling up with a
+ *   parent scrollbar when the panel itself is overflow:auto.
+ */
+.raw-editor-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.raw-editor-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+/*
+ * .monaco-editor-container
+ *   The div Monaco mounts into.  automaticLayout:true in the editor options
+ *   makes Monaco observe this element's size via ResizeObserver, so the editor
+ *   fills the available height automatically when the panel resizes.
+ *
+ *   flex:1 ensures it expands to fill the remaining vertical space inside
+ *   .raw-editor-wrap after the toolbar row is accounted for.
+ *
+ *   min-height:0 is required in a flex child to prevent it overflowing
+ *   when the parent is smaller than the content.
+ *
+ *   border-top is omitted intentionally — the toolbar's border-bottom provides
+ *   the visual separation.
+ */
+.monaco-editor-container {
+    flex: 1;
+    min-height: 0;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    overflow: hidden;
+}
+
+/*
+ * .raw-editor (legacy textarea fallback)
+ *   Shown only when Monaco fails to load from CDN.
+ *   Intentionally matches the original textarea styling to ensure the
+ *   fallback is visually consistent with the rest of the UI.
+ */
 .raw-editor {
-    width: 100%;
-    height: calc(100% - 20px);
+    flex: 1;
+    min-height: 0;
     background: var(--bg2);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
     color: var(--text);
     font-family: var(--font);
     font-size: 13px;
@@ -589,19 +647,31 @@ header {
         border-color: var(--accent)
     }
 
-.raw-editor-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    height: 100%
+/* ── Monaco status badge ── */
+/*
+ * Small pill shown in the raw editor toolbar indicating whether Monaco
+ * loaded successfully or fell back to the textarea.
+ */
+.monaco-status-badge {
+    font-size: 11px;
+    font-family: var(--font);
+    padding: 2px 8px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    color: var(--text2);
+    background: var(--bg3);
+    flex-shrink: 0;
 }
 
-.raw-editor-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap
-}
+    .monaco-status-badge.monaco-loaded {
+        border-color: var(--green);
+        color: var(--green);
+    }
+
+    .monaco-status-badge.monaco-fallback {
+        border-color: var(--yellow);
+        color: var(--yellow);
+    }
 
 /* ── Diff ── */
 .diff-controls {
@@ -1110,4 +1180,113 @@ header {
     font-family: var(--font);
     padding-top: 4px;
     opacity: .5;
+}
+
+/* ── Fix #2: No-file landing state ── */
+/*
+ * Shown in #view-editor when no appsettings file has been selected yet.
+ * Replaces the old welcome-wrap that was embedded inside the editor panel
+ * and caused the toolbar to bleed through.
+ */
+.no-file-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 32px;
+}
+
+.no-file-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    max-width: 420px;
+    text-align: center;
+}
+
+.no-file-icon {
+    font-size: 40px;
+    opacity: .25;
+}
+
+.no-file-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.no-file-sub {
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.7;
+}
+
+/* Inline clickable link styled to match the accent colour */
+.link-btn {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+    .link-btn:hover {
+        color: var(--accent2);
+    }
+
+.no-file-stats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+    font-size: 12px;
+    color: var(--text2);
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 14px;
+    margin-top: 4px;
+}
+
+    .no-file-stats .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .no-file-stats .stat-sep {
+        color: var(--border);
+    }
+
+    .no-file-stats .stat-val {
+        color: var(--text);
+        font-weight: 600;
+    }
+
+/* Ensure the editor panel itself fills its container so the no-file
+   state can centre correctly with height:100% */
+#view-editor {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0; /* panel padding is handled per child */
+}
+
+/* tree-view and raw-view both need to fill the remaining space */
+#tree-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+/* raw-view already uses flex column — just ensure it fills */
+#raw-view {
+    flex: 1;
+    min-height: 0;
+}
+
+/* no-file and loading states fill the full panel height */
+#editor-no-file,
+#editor-loading {
+    flex: 1;
 }
