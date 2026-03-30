@@ -1,14 +1,30 @@
-using System.Text.Json.Nodes;
+using Codekali.Net.Config.UI.Extensions;
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
 using Microsoft.Extensions.Logging;
+using System.Text.Json.Nodes;
 
 namespace Codekali.Net.Config.UI.Services;
 
 /// <summary>
 /// Implements CRUD operations over appsettings JSON files.
-/// All write operations create a backup before modifying the file.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Read path</b> — uses <see cref="JsonHelper"/> (<c>System.Text.Json</c>).
+/// Fast, allocation-efficient, no third-party dependency.
+/// </para>
+/// <para>
+/// <b>Write path</b> — uses <see cref="JsonCommentPreservingWriter"/> (Newtonsoft.Json).
+/// Loads the raw file text with <c>CommentHandling.Load</c> before applying any
+/// mutation, so <c>//</c> and <c>/* */</c> developer comments are preserved
+/// verbatim across every Add, Update, Delete, and Save Raw operation.
+/// </para>
+/// <para>
+/// <b>Backup policy</b> — backups are NOT created automatically on every write.
+/// Users trigger backups explicitly via the 💾 Backup button in the UI.
+/// </para>
+/// </remarks>
 internal sealed class AppSettingsService : IAppSettingsService
 {
     private readonly IConfigFileRepository _repository;
@@ -28,8 +44,11 @@ internal sealed class AppSettingsService : IAppSettingsService
         _logger = logger;
     }
 
+    // ── Read operations (System.Text.Json) ───────────────────────────────
+
     /// <inheritdoc/>
-    public Task<OperationResult<IReadOnlyList<AppSettingsFile>>> GetAllFilesAsync(CancellationToken ct = default)
+    public Task<OperationResult<IReadOnlyList<AppSettingsFile>>> GetAllFilesAsync(
+        CancellationToken ct = default)
     {
         try
         {
@@ -68,6 +87,7 @@ internal sealed class AppSettingsService : IAppSettingsService
         if (!rawResult.IsSuccess)
             return OperationResult<IReadOnlyList<ConfigEntry>>.Failure(rawResult.Error!);
 
+        // Read path: System.Text.Json — fast, no Newtonsoft dependency for reads.
         var root = JsonHelper.ParseObject(rawResult.Value!);
         if (root is null)
             return OperationResult<IReadOnlyList<ConfigEntry>>.Failure(
@@ -84,7 +104,6 @@ internal sealed class AppSettingsService : IAppSettingsService
         try
         {
             var fullPath = _repository.ResolvePath(fileName);
-
             if (!_repository.FileExists(fullPath))
                 return OperationResult<string>.Failure($"File not found: {fileName}");
 
@@ -98,26 +117,32 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
     }
 
+    // ── Write operations (Newtonsoft.Json — preserves comments) ──────────
+
     /// <inheritdoc/>
+    /// <remarks>
+    /// Changes are written to disk immediately. For restart-free reload the
+    /// host application must consume configuration via
+    /// <c>IOptionsSnapshot&lt;T&gt;</c> or <c>IOptionsMonitor&lt;T&gt;</c>
+    /// rather than <c>IOptions&lt;T&gt;</c>.
+    /// </remarks>
     public async Task<OperationResult> AddEntryAsync(
         string fileName, string keyPath, string jsonValue, CancellationToken ct = default)
     {
         try
         {
-            var (root, loadError) = await LoadRootAsync(fileName, ct).ConfigureAwait(false);
+            // Conflict check uses the fast System.Text.Json read path.
+            var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            // Prevent overwriting an existing key
             if (JsonHelper.GetNode(root, keyPath) is not null)
                 return OperationResult.Failure(
                     $"Key '{keyPath}' already exists in '{fileName}'. Use Update to change its value.");
 
-            var newNode = ParseValueNode(jsonValue);
-            if (newNode is null)
-                return OperationResult.Failure($"Invalid JSON value: {jsonValue}");
-
-            JsonHelper.SetNode(root, keyPath, newNode);
-            return await PersistAsync(fileName, root, ct).ConfigureAwait(false);
+            return await PersistMutationAsync(
+                fileName,
+                raw => JsonCommentPreservingWriter.SetValue(raw, keyPath, jsonValue),
+                ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -127,24 +152,29 @@ internal sealed class AppSettingsService : IAppSettingsService
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Changes are written to disk immediately. For restart-free reload the
+    /// host application must consume configuration via
+    /// <c>IOptionsSnapshot&lt;T&gt;</c> or <c>IOptionsMonitor&lt;T&gt;</c>
+    /// rather than <c>IOptions&lt;T&gt;</c>.
+    /// </remarks>
     public async Task<OperationResult> UpdateEntryAsync(
         string fileName, string keyPath, string jsonValue, CancellationToken ct = default)
     {
         try
         {
-            var (root, loadError) = await LoadRootAsync(fileName, ct).ConfigureAwait(false);
+            // Existence check uses the fast System.Text.Json read path.
+            var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
             if (JsonHelper.GetNode(root, keyPath) is null)
                 return OperationResult.Failure(
                     $"Key '{keyPath}' does not exist in '{fileName}'. Use Add to create it.");
 
-            var newNode = ParseValueNode(jsonValue);
-            if (newNode is null)
-                return OperationResult.Failure($"Invalid JSON value: {jsonValue}");
-
-            JsonHelper.SetNode(root, keyPath, newNode);
-            return await PersistAsync(fileName, root, ct).ConfigureAwait(false);
+            return await PersistMutationAsync(
+                fileName,
+                raw => JsonCommentPreservingWriter.SetValue(raw, keyPath, jsonValue),
+                ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -154,19 +184,29 @@ internal sealed class AppSettingsService : IAppSettingsService
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Changes are written to disk immediately. For restart-free reload the
+    /// host application must consume configuration via
+    /// <c>IOptionsSnapshot&lt;T&gt;</c> or <c>IOptionsMonitor&lt;T&gt;</c>
+    /// rather than <c>IOptions&lt;T&gt;</c>.
+    /// </remarks>
     public async Task<OperationResult> DeleteEntryAsync(
         string fileName, string keyPath, CancellationToken ct = default)
     {
         try
         {
-            var (root, loadError) = await LoadRootAsync(fileName, ct).ConfigureAwait(false);
+            // Existence check uses the fast System.Text.Json read path.
+            var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            if (!JsonHelper.RemoveNode(root, keyPath))
+            if (JsonHelper.GetNode(root, keyPath) is null)
                 return OperationResult.Failure(
                     $"Key '{keyPath}' does not exist in '{fileName}'.");
 
-            return await PersistAsync(fileName, root, ct).ConfigureAwait(false);
+            return await PersistMutationAsync(
+                fileName,
+                raw => JsonCommentPreservingWriter.RemoveKey(raw, keyPath),
+                ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -176,16 +216,29 @@ internal sealed class AppSettingsService : IAppSettingsService
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The raw content is validated for well-formed JSON (comments permitted)
+    /// and written as-is — no re-serialisation occurs, so all formatting and
+    /// comments authored by the developer are preserved exactly.
+    /// Changes are written to disk immediately. For restart-free reload the
+    /// host application must consume configuration via
+    /// <c>IOptionsSnapshot&lt;T&gt;</c> or <c>IOptionsMonitor&lt;T&gt;</c>
+    /// rather than <c>IOptions&lt;T&gt;</c>.
+    /// </remarks>
     public async Task<OperationResult> SaveRawJsonAsync(
         string fileName, string rawJson, CancellationToken ct = default)
     {
-        var validationError = JsonHelper.Validate(rawJson);
+        // Validate with Newtonsoft so comments are accepted as valid syntax.
+        var validationError = JsonCommentPreservingWriter.Validate(rawJson);
         if (validationError is not null)
             return OperationResult.Failure($"Invalid JSON: {validationError}");
 
         try
         {
             var fullPath = _repository.ResolvePath(fileName);
+
+            // Write the raw content verbatim — do NOT re-serialise.
+            // The user typed this; keep it exactly as authored.
             await _repository.WriteAllTextAsync(fullPath, rawJson, ct).ConfigureAwait(false);
             _logger.LogInformation("Saved raw JSON to {FileName}", fileName);
             return OperationResult.Success();
@@ -197,9 +250,54 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
     }
 
-    // ── private helpers ──────────────────────────────────────────────────────
+    // ── Private helpers ───────────────────────────────────────────────────
 
-    private async Task<(JsonObject? root, string? error)> LoadRootAsync(
+    /// <summary>
+    /// Reads the file and applies a comment-preserving mutation via
+    /// <see cref="JsonCommentPreservingWriter"/>, then persists the result.
+    /// </summary>
+    /// <param name="fileName">The appsettings file name.</param>
+    /// <param name="mutate">
+    /// <param name="ct"></param>
+    /// A function that receives the current raw JSON text and returns the
+    /// mutated raw JSON text (with comments intact).
+    /// </param>
+    private async Task<OperationResult> PersistMutationAsync(
+        string fileName,
+        Func<string, string> mutate,
+        CancellationToken ct)
+    {
+        var fullPath = _repository.ResolvePath(fileName);
+
+        if (!_repository.FileExists(fullPath))
+            return OperationResult.Failure($"File not found: {fileName}");
+
+        // Read the current raw text — comments included.
+        var raw = await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+
+        // Apply the mutation (Set or Remove) via Newtonsoft — comments survive.
+        string updated;
+        try
+        {
+            updated = mutate(raw);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "JSON mutation failed for {FileName}", fileName);
+            return OperationResult.Failure($"Failed to apply change: {ex.Message}");
+        }
+
+        await _repository.WriteAllTextAsync(fullPath, updated, ct).ConfigureAwait(false);
+        _logger.LogInformation("Persisted changes to {FileName}", fileName);
+        return OperationResult.Success();
+    }
+
+    /// <summary>
+    /// Loads the file into a <c>System.Text.Json</c> <see cref="JsonObject"/>
+    /// for read-only operations (existence checks, conflict checks).
+    /// Comments are not required here — the tree is discarded after the check.
+    /// </summary>
+    private async Task<(JsonObject? root, string? error)> LoadRootForReadAsync(
         string fileName, CancellationToken ct)
     {
         var fullPath = _repository.ResolvePath(fileName);
@@ -214,40 +312,8 @@ internal sealed class AppSettingsService : IAppSettingsService
         return (root, null);
     }
 
-    private async Task<OperationResult> PersistAsync(
-        string fileName, JsonObject root, CancellationToken ct)
-    {
-        // Backup is NOT triggered here automatically.
-        // Users trigger backups explicitly via the "Create Backup" button in the UI.
-        var fullPath = _repository.ResolvePath(fileName);
-        await _repository.WriteAllTextAsync(fullPath, JsonHelper.Serialize(root), ct)
-            .ConfigureAwait(false);
-
-        _logger.LogInformation("Persisted changes to {FileName}", fileName);
-        return OperationResult.Success();
-    }
-
-    /// <summary>
-    /// Attempts to parse a user-supplied value string as a JsonNode.
-    /// Handles quoted strings, bare JSON (objects, arrays, numbers, booleans, null).
-    /// </summary>
-    private static JsonNode? ParseValueNode(string jsonValue)
-    {
-        try
-        {
-            return JsonNode.Parse(jsonValue);
-        }
-        catch
-        {
-            // If parsing fails treat the whole input as a plain string
-            return JsonValue.Create(jsonValue);
-        }
-    }
-
     private static string ExtractEnvironment(string fileName)
     {
-        // "appsettings.json" → "Base"
-        // "appsettings.Development.json" → "Development"
         const string prefix = "appsettings.";
         const string suffix = ".json";
 

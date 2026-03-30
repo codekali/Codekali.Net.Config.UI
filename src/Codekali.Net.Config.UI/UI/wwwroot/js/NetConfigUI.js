@@ -10,7 +10,7 @@ let searchQuery = '';
 let editorMode = 'tree';
 let currentView = 'editor';
 const revealedValues = {};
-const _token = new URLSearchParams(window.location.search).get('token') ?? '';
+const _token = new URLSearchParams(window.location.search).get('token') || '';
 
 // ── Monaco state ──────────────────────────────────────────────────────────
 let _monacoInstance = null;
@@ -30,14 +30,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── API ───────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
-   const url = window.CONFIG_UI_API_BASE + path;
+   const sep = path.includes('?') ? '&' : '?';
+   const url = window.CONFIG_UI_API_BASE + path + (_token ? `${sep}token=${encodeURIComponent(_token)}` : '');
    const opts = { method, headers: { 'Content-Type': 'application/json' } };
    if (body !== undefined) opts.body = JSON.stringify(body);
-   if (_token) {
-   const sep = path.includes('?') ? '&' : '?';
-      opts.headers['X-Config-Token'] = _token;
-      url += `${sep}token=${encodeURIComponent(_token)}`;
-   }
+   if (_token) opts.headers['X-Config-Token'] = _token;
    const res = await fetch(url, opts);
    return res.json();
 }
@@ -510,6 +507,17 @@ async function initMonaco() {
       );
       _monacoInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRaw());
       window.__monacoNs = monaco;
+
+      // Allow // and /* */ comments in the JSON language service so the
+      // editor does not show red squiggles on valid JSONC files.
+      // This preserves full JSON syntax highlighting and token colouring
+      // while suppressing the "Comments are not permitted" diagnostic.
+      monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+         validate: true,
+         allowComments: true,
+         trailingCommas: 'ignore',
+      });
+
       updateMonacoStatusBadge(true);
    })();
    return _monacoInitPromise;
@@ -576,7 +584,10 @@ function formatRaw() {
 
 async function saveRaw() {
    const content = getRawEditorContent();
-   try { JSON.parse(content); } catch { toast('Invalid JSON — fix errors before saving', 'error'); return; }
+   // Validation is handled server-side by JsonCommentPreservingWriter.Validate
+   // (Newtonsoft.Json) which correctly accepts // and /* */ comments.
+   // The browser-native JSON.parse is intentionally not used here because it
+   // rejects comments and would block saving valid JSONC files.
    const r = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
    if (r.success) toast('Saved ✓', 'success');
    else toast(r.error, 'error');

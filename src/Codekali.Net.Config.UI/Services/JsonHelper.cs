@@ -1,6 +1,7 @@
+using Codekali.Net.Config.UI.Extensions;
+using Codekali.Net.Config.UI.Models;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Codekali.Net.Config.UI.Models;
 
 namespace Codekali.Net.Config.UI.Services;
 
@@ -16,14 +17,32 @@ internal static class JsonHelper
     };
 
     /// <summary>
+    /// Shared document options that instruct the parser to skip (not reject)
+    /// <c>//</c> and <c>/* */</c> comments. Applied to every parse call so that
+    /// appsettings files containing developer comments are handled correctly on
+    /// the read path (tree view, diff, swap, existence checks).
+    ///
+    /// Note: comments are stripped by System.Text.Json at parse time — they are
+    /// not round-tripped. The Newtonsoft-based write path in
+    /// <see cref="JsonCommentPreservingWriter"/> is responsible for preserving
+    /// comments across write operations.
+    /// </summary>
+    private static readonly JsonDocumentOptions _documentOptions = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true   // defensive — tolerates minor formatting variations
+    };
+
+    /// <summary>
     /// Parses a raw JSON string into a <see cref="JsonObject"/>.
+    /// Comments (<c>//</c> and <c>/* */</c>) are silently skipped.
     /// Returns null if the JSON is invalid or the root is not an object.
     /// </summary>
     public static JsonObject? ParseObject(string json)
     {
         try
         {
-            var node = JsonNode.Parse(json);
+            var node = JsonNode.Parse(json, nodeOptions: null, documentOptions: _documentOptions);
             return node as JsonObject;
         }
         catch (JsonException)
@@ -40,13 +59,14 @@ internal static class JsonHelper
 
     /// <summary>
     /// Validates that <paramref name="json"/> is well-formed JSON.
+    /// Comments and trailing commas are accepted.
     /// Returns the error message if invalid, or null if valid.
     /// </summary>
     public static string? Validate(string json)
     {
         try
         {
-            JsonDocument.Parse(json);
+            JsonDocument.Parse(json, _documentOptions);
             return null;
         }
         catch (JsonException ex)
@@ -56,7 +76,7 @@ internal static class JsonHelper
     }
 
     /// <summary>
-    /// Navigates a dot-notation <paramref name="path"/> on a <see cref="JsonObject"/>
+    /// Navigates a colon-separated <paramref name="path"/> on a <see cref="JsonObject"/>
     /// and returns the value node, or null if not found.
     /// E.g. "ConnectionStrings:Default" → root["ConnectionStrings"]["Default"].
     /// </summary>
@@ -77,8 +97,8 @@ internal static class JsonHelper
     }
 
     /// <summary>
-    /// Sets the value at a dot-notation <paramref name="path"/>, creating intermediate
-    /// objects as needed.
+    /// Sets the value at a colon-separated <paramref name="path"/>, creating
+    /// intermediate objects as needed.
     /// </summary>
     public static bool SetNode(JsonObject root, string path, JsonNode? value)
     {
@@ -101,7 +121,7 @@ internal static class JsonHelper
     }
 
     /// <summary>
-    /// Removes the node at the given dot-notation path.
+    /// Removes the node at the given colon-separated path.
     /// Returns true if the key existed and was removed, false otherwise.
     /// </summary>
     public static bool RemoveNode(JsonObject root, string path)
@@ -116,7 +136,8 @@ internal static class JsonHelper
     }
 
     /// <summary>
-    /// Flattens a <see cref="JsonObject"/> into a dictionary of dot-notation keys → raw JSON value strings.
+    /// Flattens a <see cref="JsonObject"/> into a dictionary of
+    /// colon-separated keys → raw JSON value strings.
     /// </summary>
     public static Dictionary<string, string?> Flatten(JsonObject root)
     {
@@ -176,7 +197,8 @@ internal static class JsonHelper
         }
     }
 
-    private static ConfigEntry BuildEntry(string key, JsonNode? node, string sourceFile, bool maskSensitive)
+    private static ConfigEntry BuildEntry(
+        string key, JsonNode? node, string sourceFile, bool maskSensitive)
     {
         var isSensitive = maskSensitive && IsSensitiveKey(key);
 
@@ -188,7 +210,8 @@ internal static class JsonHelper
                 ValueType = ConfigValueType.Object,
                 SourceFile = sourceFile,
                 IsMasked = false,
-                Children = obj.Select(kvp => BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive)).ToList()
+                Children = obj.Select(kvp =>
+                    BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive)).ToList()
             },
             JsonArray arr => new ConfigEntry
             {
