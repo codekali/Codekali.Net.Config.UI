@@ -9,7 +9,7 @@ builder.Services.AddConfigUI();
 // Option B: custom settings — uncomment to use instead
 /*builder.Services.AddConfigUI(options =>
 {
-    options.PathPrefix = "/config-ui";
+    options.PathPrefix = "/config-ui"; // Configurable to any path prefix you like (e.g. "/admin/config", "/settings", etc.)
     options.AccessToken = "super-secret-dev-token";
     options.AllowedEnvironments = ["Development", "Staging"];
     options.MaskSensitiveValues = true;
