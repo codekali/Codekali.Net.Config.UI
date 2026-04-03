@@ -21,7 +21,7 @@ public interface IAppSettingsService
     Task<OperationResult<IReadOnlyList<ConfigEntry>>> GetEntriesAsync(string fileName, CancellationToken ct = default);
 
     /// <summary>
-    /// Returns the raw JSON string for the named file.
+    /// Returns the raw JSON text of <paramref name="fileName"/>.
     /// </summary>
     Task<OperationResult<string>> GetRawJsonAsync(string fileName, CancellationToken ct = default);
 
@@ -44,8 +44,21 @@ public interface IAppSettingsService
     Task<OperationResult> DeleteEntryAsync(string fileName, string keyPath, CancellationToken ct = default);
 
     /// <summary>
-    /// Overwrites the entire file with the supplied raw JSON.
-    /// Performs JSON validation before writing and backs up the file first.
+    /// Appends <paramref name="jsonValue"/> as a new item at the end of the
+    /// array at <paramref name="keyPath"/>. Creates the array if it does not
+    /// exist. Fails if the key exists but is not an array.
+    /// </summary>
+    Task<OperationResult> AppendArrayItemAsync(string fileName, string keyPath, string jsonValue, CancellationToken ct = default);
+
+    /// <summary>
+    /// Removes the array item at zero-based <paramref name="index"/> from the
+    /// array at <paramref name="keyPath"/>. Remaining items are re-indexed.
+    /// </summary>
+    Task<OperationResult> RemoveArrayItemAsync(string fileName, string keyPath, int index, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the raw JSON text of <paramref name="fileName"/>.
+    /// Validates for well-formed JSON (comments accepted) before writing.
     /// </summary>
     Task<OperationResult> SaveRawJsonAsync(string fileName, string rawJson, CancellationToken ct = default);
 }

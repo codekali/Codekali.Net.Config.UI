@@ -1,5 +1,6 @@
-﻿using Codekali.Net.Config.UI.Interfaces;
+using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
+using Codekali.Net.Config.UI.Services;
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -13,23 +14,18 @@ namespace Codekali.Net.Config.UI.Middleware
     /// </summary>
     internal sealed class ConfigUIApiHandler
     {
-        // ── Services ──────────────────────────────────────────────────────────
         private readonly IAppSettingsService _appSettings;
         private readonly IEnvironmentSwapService _envSwap;
         private readonly IBackupService _backup;
 
-        // ── Serialisation ─────────────────────────────────────────────────────
         private static readonly JsonSerializerOptions _readOpts = new()
         {
             PropertyNameCaseInsensitive = true,
             Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         };
 
-        // ── Route table ───────────────────────────────────────────────────────
-        // Each entry is (HTTP method, path segment after "files/{fileName}/", handler).
-        // Routes that do NOT follow the "files/{fileName}/{action}" pattern are
-        // handled in the top-level dispatch switch before the table is consulted.
-        private readonly IReadOnlyDictionary<(string Method, string Action), Func<HttpContext, string, Task>> _fileRoutes;
+        private readonly IReadOnlyDictionary<(string Method, string Action),
+            Func<HttpContext, string, Task>> _fileRoutes;
 
         public ConfigUIApiHandler(
             IAppSettingsService appSettingsService,
@@ -40,8 +36,6 @@ namespace Codekali.Net.Config.UI.Middleware
             _envSwap = environmentSwapService;
             _backup = backupService;
 
-            // Build the route table once. Key = (HTTP verb, third path segment).
-            // All handlers receive (ctx, fileName) — fileName is already URL-decoded.
             _fileRoutes = new Dictionary<(string, string), Func<HttpContext, string, Task>>()
             {
                 [("GET", "entries")] = GetEntriesAsync,
@@ -50,70 +44,46 @@ namespace Codekali.Net.Config.UI.Middleware
                 [("GET", "value")] = GetValueAsync,
                 [("POST", "entries")] = PostEntryAsync,
                 [("POST", "backup")] = PostBackupAsync,
+                [("POST", "array-append")] = PostArrayAppendAsync,   // ← new
                 [("PUT", "entries")] = PutEntryAsync,
                 [("PUT", "raw")] = PutRawAsync,
                 [("DELETE", "entries")] = DeleteEntryAsync,
+                [("DELETE", "array-item")] = DeleteArrayItemAsync,   // ← new
             };
         }
 
-        // ── Entry point ───────────────────────────────────────────────────────
-
-        /// <summary>Dispatches the incoming API request to the appropriate handler.</summary>
         public async Task HandleApiAsync(HttpContext ctx, string apiPath, string method)
         {
-            // ── Top-level routes (not under files/) ───────────────────────────
             if (apiPath.Equals("files", StringComparison.OrdinalIgnoreCase) && method == "GET")
-            {
-                await HandleGetFilesAsync(ctx).ConfigureAwait(false);
-                return;
-            }
+            { await HandleGetFilesAsync(ctx).ConfigureAwait(false); return; }
 
             if (apiPath.Equals("swap", StringComparison.OrdinalIgnoreCase) && method == "POST")
-            {
-                await HandleSwapAsync(ctx).ConfigureAwait(false);
-                return;
-            }
+            { await HandleSwapAsync(ctx).ConfigureAwait(false); return; }
 
             if (apiPath.Equals("diff", StringComparison.OrdinalIgnoreCase) && method == "GET")
-            {
-                await HandleDiffAsync(ctx).ConfigureAwait(false);
-                return;
-            }
+            { await HandleDiffAsync(ctx).ConfigureAwait(false); return; }
 
             if (apiPath.Equals("conflicts", StringComparison.OrdinalIgnoreCase) && method == "GET")
-            {
-                await HandleConflictsAsync(ctx).ConfigureAwait(false);
-                return;
-            }
+            { await HandleConflictsAsync(ctx).ConfigureAwait(false); return; }
 
-            // ── File-scoped routes: files/{fileName}/{action} ─────────────────
             if (apiPath.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
             {
-                // Split into at most 4 parts to handle DELETE .../entries/{keyPath}
                 var parts = apiPath.Split('/', 4);
-
                 if (parts.Length >= 3)
                 {
                     var fileName = Uri.UnescapeDataString(parts[1]);
                     var action = parts[2];
-
                     if (_fileRoutes.TryGetValue((method, action), out var handler))
-                    {
-                        await handler(ctx, fileName).ConfigureAwait(false);
-                        return;
-                    }
+                    { await handler(ctx, fileName).ConfigureAwait(false); return; }
                 }
             }
 
-            // ── No route matched ──────────────────────────────────────────────
             ctx.Response.StatusCode = 404;
             await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
                 new { error = $"Unknown API route: {apiPath}" }).ConfigureAwait(false);
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        // Top-level handlers
-        // ══════════════════════════════════════════════════════════════════════
+        // ── Top-level handlers ────────────────────────────────────────────────
 
         private async Task HandleGetFilesAsync(HttpContext ctx)
         {
@@ -124,11 +94,7 @@ namespace Codekali.Net.Config.UI.Middleware
         private async Task HandleSwapAsync(HttpContext ctx)
         {
             var request = await ReadBodyAsync<SwapRequest>(ctx).ConfigureAwait(false);
-            if (request is null)
-            {
-                await BadRequestAsync(ctx, "Invalid swap request body.").ConfigureAwait(false);
-                return;
-            }
+            if (request is null) { await BadRequestAsync(ctx, "Invalid swap request body.").ConfigureAwait(false); return; }
             var result = await _envSwap.ExecuteSwapAsync(request, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
@@ -137,16 +103,9 @@ namespace Codekali.Net.Config.UI.Middleware
         {
             var source = ctx.Request.Query["source"].ToString();
             var target = ctx.Request.Query["target"].ToString();
-
             if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(target))
-            {
-                await BadRequestAsync(ctx, "Both 'source' and 'target' query params are required.")
-                    .ConfigureAwait(false);
-                return;
-            }
-
-            var result = await _envSwap.CompareFilesAsync(source, target, ctx.RequestAborted)
-                .ConfigureAwait(false);
+            { await BadRequestAsync(ctx, "Both 'source' and 'target' query params are required.").ConfigureAwait(false); return; }
+            var result = await _envSwap.CompareFilesAsync(source, target, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
@@ -154,57 +113,41 @@ namespace Codekali.Net.Config.UI.Middleware
         {
             var target = ctx.Request.Query["target"].ToString();
             var keys = ctx.Request.Query["keys"].ToString()
-                            .Split(',', StringSplitOptions.RemoveEmptyEntries);
-
-            var result = await _envSwap.FindConflictsAsync(target, keys, ctx.RequestAborted)
-                .ConfigureAwait(false);
+                .Split(',', StringSplitOptions.RemoveEmptyEntries);
+            var result = await _envSwap.FindConflictsAsync(target, keys, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        // File-scoped handlers  (signature: Task(HttpContext, string fileName))
-        // ══════════════════════════════════════════════════════════════════════
+        // ── File-scoped handlers ──────────────────────────────────────────────
 
         private async Task GetEntriesAsync(HttpContext ctx, string fileName)
         {
-            var result = await _appSettings.GetEntriesAsync(fileName, ctx.RequestAborted)
-                .ConfigureAwait(false);
+            var result = await _appSettings.GetEntriesAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
         private async Task GetRawAsync(HttpContext ctx, string fileName)
         {
-            var result = await _appSettings.GetRawJsonAsync(fileName, ctx.RequestAborted)
-                .ConfigureAwait(false);
+            var result = await _appSettings.GetRawJsonAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
         private async Task GetBackupsAsync(HttpContext ctx, string fileName)
         {
-            var result = await _backup.ListBackupsAsync(fileName, ctx.RequestAborted)
-                .ConfigureAwait(false);
+            var result = await _backup.ListBackupsAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
         private async Task GetValueAsync(HttpContext ctx, string fileName)
         {
             var keyPath = Uri.UnescapeDataString(ctx.Request.Query["key"].ToString());
-
             if (string.IsNullOrWhiteSpace(keyPath))
-            {
-                await BadRequestAsync(ctx, "Missing 'key' query parameter.").ConfigureAwait(false);
-                return;
-            }
+            { await BadRequestAsync(ctx, "Missing 'key' query parameter.").ConfigureAwait(false); return; }
 
-            var rawResult = await _appSettings.GetRawJsonAsync(fileName, ctx.RequestAborted)
-                .ConfigureAwait(false);
-            if (!rawResult.IsSuccess)
-            {
-                await RespondAsync(ctx, rawResult).ConfigureAwait(false);
-                return;
-            }
+            var rawResult = await _appSettings.GetRawJsonAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+            if (!rawResult.IsSuccess) { await RespondAsync(ctx, rawResult).ConfigureAwait(false); return; }
 
-            var root = Services.JsonHelper.ParseObject(rawResult.Value!);
+            var root = JsonHelper.ParseObject(rawResult.Value!);
             if (root is null)
             {
                 ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -213,7 +156,7 @@ namespace Codekali.Net.Config.UI.Middleware
                 return;
             }
 
-            var node = Services.JsonHelper.GetNode(root, keyPath);
+            var node = JsonHelper.GetNode(root, keyPath);
             if (node is null)
             {
                 ctx.Response.StatusCode = 404;
@@ -222,10 +165,8 @@ namespace Codekali.Net.Config.UI.Middleware
                 return;
             }
 
-            // Return the plain unquoted string so the browser receives "myvalue" not "\"myvalue\""
             var plainValue = node is JsonValue jv && jv.TryGetValue<string>(out var s)
-                ? s
-                : node.ToJsonString();
+                ? s : node.ToJsonString();
 
             ctx.Response.StatusCode = StatusCodes.Status200OK;
             await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
@@ -235,11 +176,7 @@ namespace Codekali.Net.Config.UI.Middleware
         private async Task PostEntryAsync(HttpContext ctx, string fileName)
         {
             var body = await ReadBodyAsync<EntryPayload>(ctx).ConfigureAwait(false);
-            if (body is null)
-            {
-                await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false);
-                return;
-            }
+            if (body is null) { await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false); return; }
             var result = await _appSettings.AddEntryAsync(
                 fileName, body.KeyPath, body.JsonValue, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
@@ -247,19 +184,42 @@ namespace Codekali.Net.Config.UI.Middleware
 
         private async Task PostBackupAsync(HttpContext ctx, string fileName)
         {
-            var result = await _backup.CreateBackupAsync(fileName, ctx.RequestAborted)
-                .ConfigureAwait(false);
+            var result = await _backup.CreateBackupAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
+
+        // ── Array handlers (new) ──────────────────────────────────────────────
+
+        private async Task PostArrayAppendAsync(HttpContext ctx, string fileName)
+        {
+            var body = await ReadBodyAsync<EntryPayload>(ctx).ConfigureAwait(false);
+            if (body is null) { await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false); return; }
+            var result = await _appSettings.AppendArrayItemAsync(
+                fileName, body.KeyPath, body.JsonValue, ctx.RequestAborted).ConfigureAwait(false);
+            await RespondAsync(ctx, result).ConfigureAwait(false);
+        }
+
+        private async Task DeleteArrayItemAsync(HttpContext ctx, string fileName)
+        {
+            var keyPath = Uri.UnescapeDataString(ctx.Request.Query["key"].ToString());
+            var indexStr = ctx.Request.Query["index"].ToString();
+
+            if (string.IsNullOrWhiteSpace(keyPath))
+            { await BadRequestAsync(ctx, "Missing 'key' query parameter.").ConfigureAwait(false); return; }
+            if (!int.TryParse(indexStr, out var index))
+            { await BadRequestAsync(ctx, "Missing or invalid 'index' query parameter.").ConfigureAwait(false); return; }
+
+            var result = await _appSettings.RemoveArrayItemAsync(
+                fileName, keyPath, index, ctx.RequestAborted).ConfigureAwait(false);
+            await RespondAsync(ctx, result).ConfigureAwait(false);
+        }
+
+        // ── Standard entry handlers ───────────────────────────────────────────
 
         private async Task PutEntryAsync(HttpContext ctx, string fileName)
         {
             var body = await ReadBodyAsync<EntryPayload>(ctx).ConfigureAwait(false);
-            if (body is null)
-            {
-                await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false);
-                return;
-            }
+            if (body is null) { await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false); return; }
             var result = await _appSettings.UpdateEntryAsync(
                 fileName, body.KeyPath, body.JsonValue, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
@@ -268,11 +228,7 @@ namespace Codekali.Net.Config.UI.Middleware
         private async Task PutRawAsync(HttpContext ctx, string fileName)
         {
             var body = await ReadBodyAsync<RawPayload>(ctx).ConfigureAwait(false);
-            if (body is null)
-            {
-                await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false);
-                return;
-            }
+            if (body is null) { await BadRequestAsync(ctx, "Invalid request body.").ConfigureAwait(false); return; }
             var result = await _appSettings.SaveRawJsonAsync(
                 fileName, body.Content, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
@@ -280,27 +236,16 @@ namespace Codekali.Net.Config.UI.Middleware
 
         private async Task DeleteEntryAsync(HttpContext ctx, string fileName)
         {
-            // Extract keyPath from the original request path after "entries/"
             var fullPath = ctx.Request.Path.Value ?? string.Empty;
             var entriesMarker = "/entries/";
             var markerIdx = fullPath.IndexOf(entriesMarker, StringComparison.OrdinalIgnoreCase);
-
-            if (markerIdx < 0)
-            {
-                await BadRequestAsync(ctx, "Missing key path in DELETE request.").ConfigureAwait(false);
-                return;
-            }
-
+            if (markerIdx < 0) { await BadRequestAsync(ctx, "Missing key path in DELETE request.").ConfigureAwait(false); return; }
             var keyPath = Uri.UnescapeDataString(fullPath[(markerIdx + entriesMarker.Length)..]);
-
-            var result = await _appSettings.DeleteEntryAsync(fileName, keyPath, ctx.RequestAborted)
-                .ConfigureAwait(false);
+            var result = await _appSettings.DeleteEntryAsync(fileName, keyPath, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        // Shared response helpers
-        // ══════════════════════════════════════════════════════════════════════
+        // ── Response helpers ──────────────────────────────────────────────────
 
         private static async Task RespondAsync<T>(HttpContext ctx, OperationResult<T> result)
         {
@@ -330,19 +275,10 @@ namespace Codekali.Net.Config.UI.Middleware
             try
             {
                 return await JsonSerializer.DeserializeAsync<T>(
-                    ctx.Request.Body,
-                    _readOpts,
-                    ctx.RequestAborted).ConfigureAwait(false);
+                    ctx.Request.Body, _readOpts, ctx.RequestAborted).ConfigureAwait(false);
             }
-            catch
-            {
-                return default;
-            }
+            catch { return default; }
         }
-
-        // ══════════════════════════════════════════════════════════════════════
-        // Private DTOs — only used within this handler
-        // ══════════════════════════════════════════════════════════════════════
 
         private sealed class EntryPayload
         {

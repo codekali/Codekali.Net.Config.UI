@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
@@ -26,14 +26,76 @@
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
-  <!-- Embed all wwwroot files as resources so the middleware can serve them without file system access -->
-  <ItemGroup>
-    <EmbeddedResource Include="UI\wwwroot\**\*" />
-  </ItemGroup>
-
-	<ItemGroup Condition="'$(Configuration)' == 'Release'">
-		<PackageReference Include="BuildBundlerMinifier" Version="3.2.449" />
+	<ItemGroup>
+		<PackageReference Include="NUglify" Version="1.21.0" />
 	</ItemGroup>
+
+	<UsingTask TaskName="MinifyCss"
+				  TaskFactory="RoslynCodeTaskFactory"
+				  AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<ParameterGroup>
+			<InputFile ParameterType="System.String" Required="true" />
+			<OutputFile ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+        var css = File.ReadAllText(InputFile);
+        // Simple but effective: collapse whitespace, strip comments
+        var result = System.Text.RegularExpressions.Regex.Replace(css, @"/\*[\s\S]*?\*/", "");
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s*([{};:,>~+])\s*", "$1");
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ").Trim();
+        File.WriteAllText(OutputFile, result);
+      ]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<UsingTask TaskName="MinifyJs"
+				  TaskFactory="RoslynCodeTaskFactory"
+				  AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<ParameterGroup>
+			<InputFile ParameterType="System.String" Required="true" />
+			<OutputFile ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+        // Strip single-line comments, collapse whitespace.
+        // Intentionally conservative — does not rename variables.
+        var js = File.ReadAllText(InputFile);
+        var result = System.Text.RegularExpressions.Regex.Replace(js, @"//[^\n]*", "");
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ").Trim();
+        File.WriteAllText(OutputFile, result);
+      ]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<Target Name="MinifyAssets"
+			  BeforeTargets="BeforeBuild"
+			  Condition="'$(Configuration)' == 'Release'">
+		<MinifyCss
+		  InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.css"
+		  OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.min.css" />
+		<MinifyJs
+		  InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.js"
+		  OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js" />
+		<Message Text="[ConfigUI] Assets minified for Release build." Importance="high" />
+	</Target>
+
+	<ItemGroup>
+		<EmbeddedResource Include="UI\wwwroot\**\*" />
+		<!--
+       Exclude .min files from being embedded in Debug builds where they
+       do not exist yet, to avoid missing-file build errors.
+     -->
+		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*"
+								Condition="'$(Configuration)' != 'Release'" />
+	</ItemGroup>
+	
 
 	<!-- Grant the test project access to internal types (services are internal sealed by design) -->
 	<ItemGroup>

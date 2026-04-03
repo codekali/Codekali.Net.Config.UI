@@ -1,7 +1,6 @@
-using Codekali.Net.Config.UI.Extensions;
-using Codekali.Net.Config.UI.Models;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Codekali.Net.Config.UI.Models;
 
 namespace Codekali.Net.Config.UI.Services;
 
@@ -11,31 +10,31 @@ namespace Codekali.Net.Config.UI.Services;
 /// </summary>
 internal static class JsonHelper
 {
-    private static readonly JsonSerializerOptions _writeOptions = new()
-    {
-        WriteIndented = true
-    };
+    private static readonly JsonSerializerOptions _writeOptions = new() { WriteIndented = true };
 
-    /// <summary>
-    /// Shared document options that instruct the parser to skip (not reject)
-    /// <c>//</c> and <c>/* */</c> comments. Applied to every parse call so that
-    /// appsettings files containing developer comments are handled correctly on
-    /// the read path (tree view, diff, swap, existence checks).
-    ///
-    /// Note: comments are stripped by System.Text.Json at parse time — they are
-    /// not round-tripped. The Newtonsoft-based write path in
-    /// <see cref="JsonCommentPreservingWriter"/> is responsible for preserving
-    /// comments across write operations.
-    /// </summary>
     private static readonly JsonDocumentOptions _documentOptions = new()
     {
         CommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true   // defensive — tolerates minor formatting variations
+        AllowTrailingCommas = true
     };
+
+    private static readonly string[] _sensitiveExactOrPartialMatches =
+    [
+        "password", "secret", "token", "apikey", "api_key",
+        "connectionstring", "clientsecret", "accesskey",
+        "privatekey", "signingkey"
+    ];
+
+    private static readonly string[] _sensitiveSuffixes = new[]
+    {
+        "password", "secret", "token", "apikey", "_key", "privatekey"
+    };
+
+    // ── Parsing ───────────────────────────────────────────────────────────
 
     /// <summary>
     /// Parses a raw JSON string into a <see cref="JsonObject"/>.
-    /// Comments (<c>//</c> and <c>/* */</c>) are silently skipped.
+    /// Comments and trailing commas are silently accepted.
     /// Returns null if the JSON is invalid or the root is not an object.
     /// </summary>
     public static JsonObject? ParseObject(string json)
@@ -45,40 +44,27 @@ internal static class JsonHelper
             var node = JsonNode.Parse(json, nodeOptions: null, documentOptions: _documentOptions);
             return node as JsonObject;
         }
-        catch (JsonException)
-        {
-            return null;
-        }
+        catch (JsonException) { return null; }
     }
 
-    /// <summary>
-    /// Serialises a <see cref="JsonNode"/> back to an indented JSON string.
-    /// </summary>
-    public static string Serialize(JsonNode node) =>
-        node.ToJsonString(_writeOptions);
+    public static string Serialize(JsonNode node) => node.ToJsonString(_writeOptions);
 
     /// <summary>
-    /// Validates that <paramref name="json"/> is well-formed JSON.
-    /// Comments and trailing commas are accepted.
-    /// Returns the error message if invalid, or null if valid.
+    /// Validates well-formed JSON (comments and trailing commas accepted).
+    /// Returns null if valid; otherwise the error message.
     /// </summary>
     public static string? Validate(string json)
     {
-        try
-        {
-            JsonDocument.Parse(json, _documentOptions);
-            return null;
-        }
-        catch (JsonException ex)
-        {
-            return ex.Message;
-        }
+        try { JsonDocument.Parse(json, _documentOptions); return null; }
+        catch (JsonException ex) { return ex.Message; }
     }
 
+    // ── Path navigation ───────────────────────────────────────────────────
+
     /// <summary>
-    /// Navigates a colon-separated <paramref name="path"/> on a <see cref="JsonObject"/>
-    /// and returns the value node, or null if not found.
-    /// E.g. "ConnectionStrings:Default" → root["ConnectionStrings"]["Default"].
+    /// Navigates a colon-separated path on a <see cref="JsonObject"/>.
+    /// Numeric segments navigate into arrays by index (e.g. <c>Cors:Origins:0</c>).
+    /// Returns null if any segment is not found.
     /// </summary>
     public static JsonNode? GetNode(JsonObject root, string path)
     {
@@ -87,19 +73,22 @@ internal static class JsonHelper
 
         foreach (var segment in segments)
         {
-            if (current is JsonObject obj && obj.TryGetPropertyValue(segment, out var next))
+            if (current is JsonObject obj)
+            {
+                if (!obj.TryGetPropertyValue(segment, out var next)) return null;
                 current = next;
-            else
-                return null;
+            }
+            else if (current is JsonArray arr && int.TryParse(segment, out var idx))
+            {
+                if (idx < 0 || idx >= arr.Count) return null;
+                current = arr[idx];
+            }
+            else return null;
         }
 
         return current;
     }
 
-    /// <summary>
-    /// Sets the value at a colon-separated <paramref name="path"/>, creating
-    /// intermediate objects as needed.
-    /// </summary>
     public static bool SetNode(JsonObject root, string path, JsonNode? value)
     {
         var segments = SplitPath(path);
@@ -120,60 +109,22 @@ internal static class JsonHelper
         return true;
     }
 
-    /// <summary>
-    /// Removes the node at the given colon-separated path.
-    /// Returns true if the key existed and was removed, false otherwise.
-    /// </summary>
     public static bool RemoveNode(JsonObject root, string path)
     {
         var segments = SplitPath(path);
-
-        if (segments.Length == 1)
-            return root.Remove(segments[0]);
-
+        if (segments.Length == 1) return root.Remove(segments[0]);
         var parent = GetNode(root, string.Join(":", segments[..^1])) as JsonObject;
         return parent?.Remove(segments[^1]) ?? false;
     }
 
-    /// <summary>
-    /// Flattens a <see cref="JsonObject"/> into a dictionary of
-    /// colon-separated keys → raw JSON value strings.
-    /// </summary>
+    // ── Flatten (for diff/swap) ───────────────────────────────────────────
+
     public static Dictionary<string, string?> Flatten(JsonObject root)
     {
         var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         FlattenNode(root, string.Empty, result);
         return result;
     }
-
-    /// <summary>
-    /// Converts a <see cref="JsonObject"/> into a tree of <see cref="ConfigEntry"/> objects.
-    /// </summary>
-    public static List<ConfigEntry> ToEntryTree(JsonObject root, string sourceFile, bool maskSensitive)
-    {
-        return root
-            .Select(kvp => BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive))
-            .ToList();
-    }
-
-    /// <summary>
-    /// Returns true if the key name suggests it holds a sensitive value.
-    /// </summary>
-    public static bool IsSensitiveKey(string key)
-    {
-        var lower = key.ToLowerInvariant();
-        return lower.Contains("password") ||
-               lower.Contains("secret") ||
-               lower.Contains("token") ||
-               lower.Contains("apikey") ||
-               lower.Contains("api_key") ||
-               lower.Contains("connectionstring");
-    }
-
-    // ── private helpers ──────────────────────────────────────────────────────
-
-    private static string[] SplitPath(string path) =>
-        path.Split(':', StringSplitOptions.RemoveEmptyEntries);
 
     private static void FlattenNode(JsonNode? node, string prefix, Dictionary<string, string?> result)
     {
@@ -188,7 +139,9 @@ internal static class JsonHelper
                 break;
 
             case JsonArray arr:
-                result[prefix] = arr.ToJsonString();
+                // Flatten array items by index so diff shows per-item changes.
+                for (int i = 0; i < arr.Count; i++)
+                    FlattenNode(arr[i], $"{prefix}:{i}", result);
                 break;
 
             default:
@@ -197,9 +150,21 @@ internal static class JsonHelper
         }
     }
 
+    // ── Entry tree ────────────────────────────────────────────────────────
+
+    public static List<ConfigEntry> ToEntryTree(
+        JsonObject root, string sourceFile, bool maskSensitive)
+    {
+        return root
+            .Select(kvp => BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive))
+            .ToList();
+    }
+
     private static ConfigEntry BuildEntry(
         string key, JsonNode? node, string sourceFile, bool maskSensitive)
     {
+        // Only mask at the property-name level, not for array-index keys.
+        // Also skip $schema and other metadata keys.
         var isSensitive = maskSensitive && IsSensitiveKey(key);
 
         return node switch
@@ -210,33 +175,41 @@ internal static class JsonHelper
                 ValueType = ConfigValueType.Object,
                 SourceFile = sourceFile,
                 IsMasked = false,
-                Children = obj.Select(kvp =>
-                    BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive)).ToList()
+                Children = obj.Count == 0
+                    ? new List<ConfigEntry>()   // empty object — still expandable
+                    : obj.Select(kvp => BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive))
+                          .ToList()
             },
+
             JsonArray arr => new ConfigEntry
             {
                 Key = key,
-                RawValue = isSensitive ? null : arr.ToJsonString(),
                 ValueType = ConfigValueType.Array,
+                SourceFile = sourceFile,
                 IsMasked = isSensitive,
-                SourceFile = sourceFile
+                RawValue = isSensitive ? null : arr.ToJsonString(),
+                // Build children for each array item so the tree can expand them.
+                Children = arr.Select((item, idx) =>
+                    BuildArrayItemEntry(idx, item, sourceFile, maskSensitive)).ToList()
             },
+
             JsonValue val => new ConfigEntry
             {
                 Key = key,
                 RawValue = isSensitive ? null : val.ToJsonString(),
-                ValueType = ClassifyValue(val),
+                ValueType = ClassifyScalar(val),
                 IsMasked = isSensitive,
                 SourceFile = sourceFile
             },
+
             null => new ConfigEntry
             {
                 Key = key,
                 RawValue = "null",
                 ValueType = ConfigValueType.Null,
-                IsMasked = false,
                 SourceFile = sourceFile
             },
+
             _ => new ConfigEntry
             {
                 Key = key,
@@ -248,7 +221,99 @@ internal static class JsonHelper
         };
     }
 
-    private static ConfigValueType ClassifyValue(JsonValue val)
+    private static ConfigEntry BuildArrayItemEntry(
+        int index, JsonNode? item, string sourceFile, bool maskSensitive)
+    {
+        var key = index.ToString();
+
+        return item switch
+        {
+            JsonObject obj => new ConfigEntry
+            {
+                Key = key,
+                ArrayIndex = index,
+                ValueType = ConfigValueType.Object,
+                SourceFile = sourceFile,
+                Children = obj.Select(kvp =>
+                    BuildEntry(kvp.Key, kvp.Value, sourceFile, maskSensitive)).ToList()
+            },
+
+            JsonArray inner => new ConfigEntry
+            {
+                Key = key,
+                ArrayIndex = index,
+                ValueType = ConfigValueType.Array,
+                SourceFile = sourceFile,
+                RawValue = inner.ToJsonString(),
+                Children = inner.Select((it, i) =>
+                    BuildArrayItemEntry(i, it, sourceFile, maskSensitive)).ToList()
+            },
+
+            JsonValue val => new ConfigEntry
+            {
+                Key = key,
+                ArrayIndex = index,
+                RawValue = val.ToJsonString(),
+                ValueType = ConfigValueType.ArrayItem,
+                SourceFile = sourceFile
+            },
+
+            null => new ConfigEntry
+            {
+                Key = key,
+                ArrayIndex = index,
+                RawValue = "null",
+                ValueType = ConfigValueType.ArrayItem,
+                SourceFile = sourceFile
+            },
+
+            _ => new ConfigEntry
+            {
+                Key = key,
+                ArrayIndex = index,
+                RawValue = item.ToJsonString(),
+                ValueType = ConfigValueType.ArrayItem,
+                SourceFile = sourceFile
+            }
+        };
+    }
+
+    // ── Sensitivity check ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns true if the key name suggests a sensitive value.
+    /// Uses whole-word matching (exact or suffix-based) to avoid false positives.
+    /// Examples: "password", "ApiKey", "my_secret", "JwtToken" → true
+    /// Examples: "$schema", "AllowedOrigins", "PublicKey" → false
+    /// </summary>
+    public static bool IsSensitiveKey(string key)
+    {
+        // Strip leading $ (e.g., $schema is not sensitive)
+        var lower = key.TrimStart('$').ToLowerInvariant();
+
+        if (string.IsNullOrEmpty(lower))
+            return false;
+
+        // Check exact matches first (most specific, fastest)
+        if (Array.Exists(_sensitiveExactOrPartialMatches, lower.Contains))
+            return true;
+
+        // Check suffix matches (general patterns like "*Password", "*_key")
+        foreach (var suffix in _sensitiveSuffixes)
+        {
+            if (lower.EndsWith(suffix, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    public static string[] SplitPath(string path) =>
+        path.Split(':', StringSplitOptions.RemoveEmptyEntries);
+
+    private static ConfigValueType ClassifyScalar(JsonValue val)
     {
         if (val.TryGetValue<bool>(out _)) return ConfigValueType.Boolean;
         if (val.TryGetValue<double>(out _)) return ConfigValueType.Number;

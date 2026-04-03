@@ -1,7 +1,7 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Codekali.Net.Config.UI.Services;
+namespace Codekali.Net.Config.UI.Extensions;
 
 /// <summary>
 /// Handles all write-path JSON operations while preserving <c>//</c> and
@@ -60,19 +60,23 @@ internal static class JsonCommentPreservingWriter
 
         if (existing != null)
         {
-            // ── UPDATE: splice the new value over the old one ──────────────
             var newValueToken = ParseValueToken(jsonValue);
             var newValueText = newValueToken.ToString(Formatting.Indented);
-
-            // IJsonLineInfo gives us the 1-based line and column of the token.
             var lineInfo = (IJsonLineInfo)existing;
+
+            // When the last segment is a numeric index the token lives inside
+            // an array — its source line has no ":" separator.
+            // Route to the array-item splice path instead of the key-value path.
+            bool lastSegmentIsIndex = int.TryParse(segments[^1], out _);
+            if (lastSegmentIsIndex)
+                return SpliceArrayItemValue(originalJson, lineInfo, existing, newValueText);
+
             return SpliceValue(originalJson, lineInfo, existing, newValueText);
         }
         else
         {
-            // ── ADD: insert a new property into the parent object ──────────
-            // Navigate to the deepest existing parent, creating missing
-            // intermediate objects along the way via recursive string insertion.
+            // ADD path — only reached for object property keys, not array indices.
+            // (Appending to an array goes through AppendToArray, not SetValue.)
             return InsertProperty(originalJson, root, segments, jsonValue);
         }
     }
@@ -154,6 +158,37 @@ internal static class JsonCommentPreservingWriter
 
         return source[..valueStart] + newValueText + source[valueEnd..];
     }
+
+    /// <summary>
+    /// Replaces the value of a bare array item (no ":" on its line).
+    /// Locates the value by its Newtonsoft line number then measures and
+    /// replaces its exact character span.
+    /// </summary>
+    private static string SpliceArrayItemValue(
+        string source, IJsonLineInfo lineInfo, JToken existing, string newValueText)
+    {
+        int lineBegin = LineStart(source, lineInfo.LineNumber);
+
+        // Skip leading whitespace to reach the start of the value.
+        int valueStart = lineBegin;
+        while (valueStart < source.Length && source[valueStart] is ' ' or '\t')
+            valueStart++;
+
+        int valueEnd;
+        if (existing.Type is JTokenType.Object or JTokenType.Array)
+        {
+            valueEnd = existing.Type == JTokenType.Object
+                ? FindMatchingClose(source, valueStart)
+                : FindMatchingCloseBracket(source, valueStart);
+        }
+        else
+        {
+            valueEnd = valueStart + MeasureTokenLength(source, valueStart, existing);
+        }
+
+        return source[..valueStart] + newValueText + source[valueEnd..];
+    }
+
 
     /// <summary>
     /// Returns the 0-based char offset of the first character on
@@ -537,8 +572,17 @@ internal static class JsonCommentPreservingWriter
         JToken? current = root;
         foreach (var seg in segments)
         {
-            if (current is not JObject obj) return null;
-            current = obj[seg];
+            if (current is JObject obj)
+            {
+                current = obj[seg];
+            }
+            else if (current is JArray arr && int.TryParse(seg, out var idx))
+            {
+                if (idx < 0 || idx >= arr.Count) return null;
+                current = arr[idx];
+            }
+            else return null;
+
             if (current is null) return null;
         }
         return current;
@@ -553,4 +597,299 @@ internal static class JsonCommentPreservingWriter
 
     private static string[] SplitPath(string path)
         => path.Split(':', StringSplitOptions.RemoveEmptyEntries);
+    // ── Array operations ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Appends <paramref name="jsonValue"/> as a new item at the end of the
+    /// JSON array at <paramref name="keyPath"/> in <paramref name="originalJson"/>.
+    /// If the key does not exist, a new single-item array is created.
+    /// If the key exists but is not an array, returns a failure message.
+    /// </summary>
+    public static (string result, string? error) AppendToArray(
+        string originalJson, string keyPath, string jsonValue)
+    {
+        var root = Parse(originalJson);
+        var segments = SplitPath(keyPath);
+        var existing = GetNestedToken(root, segments);
+
+        JToken newItem;
+        try { newItem = JToken.Parse(jsonValue); }
+        catch { newItem = new JValue(jsonValue); }
+
+        if (existing is null)
+        {
+            // Key does not exist — create a new array with one item.
+            var arr = new JArray(newItem);
+            SetNestedToken(root, segments, arr);
+            return (SerializePreserving(originalJson, root, keyPath, arr.ToString(Formatting.Indented)), null);
+        }
+
+        if (existing is not JArray jArray)
+            return (originalJson, $"'{keyPath}' exists but is not an array.");
+
+        // Append in place on the JToken tree — but we can't serialize back
+        // with comments, so we do string surgery: find the closing ']' and
+        // insert before it.
+        jArray.Add(newItem);
+
+        // Use string surgery to insert the new item before the closing ']'.
+        var itemJson = newItem.ToString(Formatting.None);
+        var indentUnit = DetectIndentUnit(originalJson);
+        var depth = segments.Length + 1;          // array items are one deeper
+        var itemIndent = string.Concat(Enumerable.Repeat(indentUnit, depth));
+        var formatted = $"{itemIndent}{itemJson}";
+
+        return (InsertArrayItem(originalJson, keyPath, formatted), null);
+    }
+
+    /// <summary>
+    /// Removes the array item at zero-based <paramref name="index"/> from the
+    /// array at <paramref name="keyPath"/>. Remaining items are not re-keyed in
+    /// the source (JSON arrays are positional, not keyed).
+    /// </summary>
+    public static (string result, string? error) RemoveFromArray(
+        string originalJson, string keyPath, int index)
+    {
+        var root = Parse(originalJson);
+        var segments = SplitPath(keyPath);
+        var existing = GetNestedToken(root, segments);
+
+        if (existing is null)
+            return (originalJson, $"Key '{keyPath}' not found.");
+
+        if (existing is not JArray jArray)
+            return (originalJson, $"'{keyPath}' is not an array.");
+
+        if (index < 0 || index >= jArray.Count)
+            return (originalJson, $"Index {index} is out of range (array has {jArray.Count} items).");
+
+        // String surgery: find the array in the source and remove the nth item line.
+        return (RemoveArrayItemAtIndex(originalJson, keyPath, index, jArray.Count), null);
+    }
+
+    // ── Array string-surgery helpers ──────────────────────────────────────
+
+    /// <summary>
+    /// Inserts a formatted item line before the closing <c>]</c> of the array
+    /// identified by <paramref name="keyPath"/> in <paramref name="source"/>.
+    /// </summary>
+    private static string InsertArrayItem(string source, string keyPath, string formattedItem)
+    {
+        // Locate the array's '[' using the same key-scanning approach as FindOpenBrace.
+        var segments = SplitPath(keyPath);
+        var root = Parse(source);
+        var arrToken = GetNestedToken(root, segments) as JArray;
+        if (arrToken is null) return source;
+
+        var lineInfo = (IJsonLineInfo)arrToken;
+        int lineBegin = LineStart(source, lineInfo.LineNumber);
+        int openBracket = FindOpenBracket(source, lineBegin);
+        if (openBracket < 0) return source;
+
+        int closeBracket = FindMatchingCloseBracket(source, openBracket);
+
+        // Walk backward from closing ']' to find the last non-whitespace char.
+        int insertAt = closeBracket - 2; // closeBracket points past ']'
+        while (insertAt > openBracket && char.IsWhiteSpace(source[insertAt]))
+            insertAt--;
+        insertAt++;
+
+        bool hasItems = arrToken.Count > 0;  // count was already incremented by Add
+        // The original array (before Add) had Count-1 items.
+        bool hadItemsBefore = arrToken.Count > 1;
+        string separator = hadItemsBefore ? "," : string.Empty;
+        string insertion = $"{separator}\n{formattedItem}\n";
+
+        return source[..insertAt] + insertion + source[(closeBracket - 1)..];
+    }
+
+    /// <summary>
+    /// Removes the item at <paramref name="index"/> from the array at
+    /// <paramref name="keyPath"/> by locating it in the source text by
+    /// counting item-start positions inside the array's brackets.
+    /// </summary>
+    private static string RemoveArrayItemAtIndex(
+        string source, string keyPath, int index, int totalCount)
+    {
+        var segments = SplitPath(keyPath);
+        var root = Parse(source);
+        var arrToken = GetNestedToken(root, segments) as JArray;
+        if (arrToken is null) return source;
+
+        var lineInfo = (IJsonLineInfo)arrToken;
+        int lineBegin = LineStart(source, lineInfo.LineNumber);
+        int openBracket = FindOpenBracket(source, lineBegin);
+        if (openBracket < 0) return source;
+
+        int closeBracket = FindMatchingCloseBracket(source, openBracket);
+
+        // Walk through the array content and find the start/end of the nth item.
+        var (itemStart, itemEnd) = FindArrayItemSpan(source, openBracket, closeBracket, index, totalCount);
+        if (itemStart < 0) return source;
+
+        var result = source[..itemStart] + source[itemEnd..];
+
+        // Clean up orphaned trailing comma if we removed a non-last item.
+        if (index < totalCount - 1)
+        {
+            // Nothing to do — we already removed the item and its trailing comma
+            // is included in itemEnd.
+        }
+        else
+        {
+            // Removed the last item — clean up trailing comma on the new last item.
+            result = RemoveTrailingComma(result, itemStart);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns the (start, end) character span of the nth item inside an array,
+    /// including any leading/trailing whitespace on its line(s) and a following
+    /// comma if present. The span is suitable for direct removal.
+    /// </summary>
+    private static (int start, int end) FindArrayItemSpan(
+        string source, int openBracket, int closeBracket, int targetIndex, int totalCount)
+    {
+        int i = openBracket + 1; // skip '['
+        int itemNo = 0;
+
+        while (i < closeBracket - 1)
+        {
+            // Skip whitespace between items.
+            while (i < source.Length && char.IsWhiteSpace(source[i])) i++;
+
+            if (i >= closeBracket - 1) break;
+
+            // Skip comments.
+            if (source[i] == '/' && i + 1 < source.Length)
+            {
+                if (source[i + 1] == '/') { i = SkipLineComment(source, i); continue; }
+                if (source[i + 1] == '*') { i = SkipBlockComment(source, i); continue; }
+            }
+
+            // Mark start of item — include the line's leading whitespace.
+            int lineStart = i;
+            while (lineStart > 0 && source[lineStart - 1] != '\n') lineStart--;
+
+            // Measure the item extent.
+            int itemEnd;
+            if (source[i] == '{' || source[i] == '[')
+            {
+                itemEnd = source[i] == '{' ? FindMatchingClose(source, i) : FindMatchingCloseBracket(source, i);
+            }
+            else if (source[i] == '"')
+            {
+                itemEnd = SkipString(source, i);
+            }
+            else
+            {
+                itemEnd = i;
+                while (itemEnd < source.Length
+                    && source[itemEnd] != ','
+                    && source[itemEnd] != ']'
+                    && source[itemEnd] != '\n')
+                    itemEnd++;
+            }
+
+            // Include trailing comma if present.
+            int afterItem = itemEnd;
+            while (afterItem < source.Length && source[afterItem] is ' ' or '	') afterItem++;
+            if (afterItem < source.Length && source[afterItem] == ',') afterItem++;
+
+            // Include the trailing newline.
+            if (afterItem < source.Length && source[afterItem] == '\n') afterItem++;
+
+            if (itemNo == targetIndex)
+                return (lineStart, afterItem);
+
+            i = afterItem;
+            itemNo++;
+        }
+
+        return (-1, -1);
+    }
+
+    // ── Bracket scanning helpers ──────────────────────────────────────────
+
+    private static int FindOpenBracket(string source, int from)
+    {
+        int i = from;
+        while (i < source.Length)
+        {
+            char c = source[i];
+            if (c == '[') return i;
+            if (char.IsWhiteSpace(c)) { i++; continue; }
+            if (c == '/' && i + 1 < source.Length)
+            {
+                if (source[i + 1] == '/') { i = SkipLineComment(source, i); continue; }
+                if (source[i + 1] == '*') { i = SkipBlockComment(source, i); continue; }
+            }
+            // Skip key name and colon before the '['.
+            if (c == '"') { i = SkipString(source, i); continue; }
+            if (c == ':') { i++; continue; }
+            break;
+        }
+        return -1;
+    }
+
+    private static int FindMatchingCloseBracket(string source, int openOffset)
+    {
+        int depth = 0;
+        int i = openOffset;
+        while (i < source.Length)
+        {
+            char c = source[i];
+            if (c == '"') { i = SkipString(source, i); continue; }
+            if (c == '/' && i + 1 < source.Length)
+            {
+                if (source[i + 1] == '/') { i = SkipLineComment(source, i); continue; }
+                if (source[i + 1] == '*') { i = SkipBlockComment(source, i); continue; }
+            }
+            if (c == '[') depth++;
+            if (c == ']') { depth--; if (depth == 0) return i + 1; }
+            i++;
+        }
+        return source.Length;
+    }
+
+    // ── JObject/JArray tree navigation (for array write path) ────────────
+
+    private static JToken? GetNestedToken(JObject root, string[] segments)
+    {
+        JToken? current = root;
+        foreach (var seg in segments)
+        {
+            if (current is JObject obj) { current = obj[seg]; }
+            else if (current is JArray arr && int.TryParse(seg, out var idx)) { current = arr[idx]; }
+            else return null;
+            if (current is null) return null;
+        }
+        return current;
+    }
+
+    private static void SetNestedToken(JObject root, string[] segments, JToken value)
+    {
+        JObject current = root;
+        for (int i = 0; i < segments.Length - 1; i++)
+        {
+            if (current[segments[i]] is not JObject child)
+            {
+                child = new JObject();
+                current[segments[i]] = child;
+            }
+            current = child;
+        }
+        current[segments[^1]] = value;
+    }
+
+    private static string SerializePreserving(
+        string originalJson, JObject mutatedRoot, string keyPath, string valueJson)
+    {
+        // For the case where the key didn't exist, we delegate to SetValue
+        // which handles insertion with comment preservation.
+        return SetValue(originalJson, keyPath, valueJson);
+    }
+
 }

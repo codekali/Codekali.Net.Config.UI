@@ -1,4 +1,4 @@
-﻿// ── State ─────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────
 let files = [];
 let currentFile = null;
 let currentEntries = [];
@@ -207,12 +207,20 @@ function renderNode(node, depth, parentPath) {
    const slotId = 'slot-' + pathToId(fullPath);
    const indent = depth * 20;
    const isObj = node.valueType === 'object';
+   const isArr = node.valueType === 'array';
+   const isArrItem = node.valueType === 'arrayItem';
+   const isExpandable = (isObj || isArr) && (node.children?.length > 0 || isArr);
    const isExpanded = expandedPaths.has(fullPath);
    const isRevealed = revealedPaths.has(fullPath);
 
+   // ── Value display ──────────────────────────────────────────────────────
    let valueHtml = '';
    if (isObj) {
-      valueHtml = `<span class="tree-type-badge" style="margin-left:4px">{${node.children?.length ?? 0}}</span>`;
+      const count = node.children?.length ?? 0;
+      valueHtml = `<span class="tree-type-badge" style="margin-left:4px">{${count}}</span>`;
+   } else if (isArr) {
+      const count = node.children?.length ?? 0;
+      valueHtml = `<span class="tree-type-badge" style="margin-left:4px">[${count}]</span>`;
    } else {
       let rawVal = node.rawValue;
       let displayVal;
@@ -222,12 +230,16 @@ function renderNode(node, depth, parentPath) {
          displayVal = revealedValues[fullPath.trim()] ?? '';
       } else if (rawVal === null || rawVal === undefined || rawVal === 'null') {
          displayVal = 'null';
-      } else if (node.valueType === 'string') {
-         displayVal = rawVal.startsWith('"') && rawVal.endsWith('"') ? rawVal.slice(1, -1) : rawVal;
+      } else if (node.valueType === 'string' || node.valueType === 'arrayItem') {
+         // Strip surrounding quotes for display; keep null as-is.
+         displayVal = (rawVal.startsWith('"') && rawVal.endsWith('"'))
+            ? rawVal.slice(1, -1) : rawVal;
       } else {
          displayVal = rawVal;
       }
-      const cls = (node.isMasked && !isRevealed) ? 'masked' : node.valueType;
+      const cls = (node.isMasked && !isRevealed) ? 'masked'
+         : isArrItem ? 'string'
+            : node.valueType;
       valueHtml = `<span class="tree-colon">:</span><span class="tree-value ${cls}">${escHtml(displayVal)}</span>`;
       if (node.isMasked) {
          valueHtml += ` <button class="btn btn-ghost btn-sm" onclick="toggleReveal('${escAttr(fullPath)}',event)"
@@ -235,22 +247,62 @@ function renderNode(node, depth, parentPath) {
       }
    }
 
-   const toggleHtml = isObj
+   // ── Expand toggle ──────────────────────────────────────────────────────
+   const toggleHtml = isExpandable
       ? `<span class="tree-toggle" onclick="toggleExpand('${escAttr(fullPath)}',event)">${isExpanded ? '▾' : '▸'}</span>`
       : `<span class="tree-toggle"></span>`;
-   const rowClick = isObj ? `onclick="toggleExpand('${escAttr(fullPath)}',event)"` : '';
+
+   const rowClick = isExpandable ? `onclick="toggleExpand('${escAttr(fullPath)}',event)"` : '';
+
+   // ── Actions ────────────────────────────────────────────────────────────
    let actions = '';
    if (!window.READONLY) {
-      actions = `<span class="row-actions"><button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)">✕</button></span>`;
+      if (isArr) {
+         // Arrays: append-item button + delete whole array
+         actions = `<span class="row-actions">
+            <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)" title="Append item">+ item</button>
+            <button class="btn btn-danger btn-sm"    onclick="confirmDelete('${escAttr(fullPath)}',event)" title="Delete array">✕</button>
+         </span>`;
+      } else if (isArrItem) {
+         // Array items: delete this specific item by index
+         const parentArr = parentPath;
+         const idx = node.arrayIndex ?? parseInt(node.key, 10);
+         actions = `<span class="row-actions">
+            <button class="btn btn-danger btn-sm" onclick="confirmDeleteArrayItem('${escAttr(parentArr)}',${idx},event)" title="Remove item">✕</button>
+         </span>`;
+      } else {
+         actions = `<span class="row-actions">
+            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)">✕</button>
+         </span>`;
+      }
    }
+
+   // ── Children ───────────────────────────────────────────────────────────
    let childHtml = '';
-   if (isObj && isExpanded && node.children?.length) {
-      childHtml = `<div>${renderNodes(node.children, depth + 1, fullPath)}</div>`;
+   if (isExpanded && node.children?.length) {
+      if (isArr) {
+         // Render array items — pass fullPath as the parentPath so
+         // each item's path becomes e.g. CorsSettings:AllowedOrigins:0
+         childHtml = `<div>${renderArrayItems(node.children, depth + 1, fullPath)}</div>`;
+      } else {
+         childHtml = `<div>${renderNodes(node.children, depth + 1, fullPath)}</div>`;
+      }
+   } else if (isArr && isExpanded && (!node.children || node.children.length === 0)) {
+      // Empty array — show affordance to add first item
+      if (!window.READONLY) {
+         childHtml = `<div style="padding-left:${8 + (depth + 1) * 20}px;padding-top:4px">
+            <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)">+ Add first item</button>
+         </div>`;
+      }
    }
-   const dblClick = window.READONLY ? '' : `ondblclick="startEdit('${escAttr(fullPath)}',${isObj},event)"`;
+
+   // ── Double-click to edit (not for arrays, not for array item objects) ──
+   const canEdit = !window.READONLY && !isArr && !(isObj && isArrItem);
+   const dblClick = canEdit ? `ondblclick="startEdit('${escAttr(fullPath)}',${isObj || isArrItem && node.valueType === 'object'},event)"` : '';
+
    return `<div class="tree-node">
             <div class="tree-row" style="padding-left:${8 + indent}px;cursor:${window.READONLY ? 'default' : 'pointer'}" ${rowClick} ${dblClick}
-              title="${window.READONLY ? '' : 'Double-click to edit'}">
+              title="${canEdit ? 'Double-click to edit' : ''}">
               ${toggleHtml}
               <span class="tree-key">${escHtml(node.key)}</span>
               ${valueHtml}
@@ -259,6 +311,15 @@ function renderNode(node, depth, parentPath) {
             <div id="${slotId}" class="hidden"></div>
             ${childHtml}
           </div>`;
+}
+
+// Renders array items — key is the numeric index, parentPath is the array's path.
+function renderArrayItems(items, depth, arrayPath) {
+   return items.map(item => {
+      // For array items the "key" is the index number.
+      // We override parentPath so fullPath = arrayPath:0, arrayPath:1 etc.
+      return renderNode(item, depth, arrayPath);
+   }).join('');
 }
 
 function pathToId(path) { return path.replace(/[^a-zA-Z0-9]/g, '_'); }
@@ -327,16 +388,29 @@ function openInlineEditor(slot, fullPath) {
       prefill = revealedValues[fullPath.trim()] ?? '';
    } else {
       const raw = entry?.rawValue ?? '';
-      prefill = (entry?.valueType === 'string' && raw.startsWith('"') && raw.endsWith('"'))
-         ? raw.slice(1, -1) : raw;
+      if (raw === 'null' || raw === null || raw === undefined) {
+         prefill = '';   // empty input = user can type a new value; null shown as placeholder
+      } else if ((entry?.valueType === 'string' || entry?.valueType === 'arrayItem')
+         && raw.startsWith('"') && raw.endsWith('"')) {
+         prefill = raw.slice(1, -1);
+      } else {
+         prefill = raw;
+      }
    }
    const inputId = 'ei-' + pathToId(fullPath);
    const indentPx = 8 + (fullPath.split(':').length - 1) * 20;
+   const isMultiline = prefill.includes('\n') || prefill.length > 80;
    slot.innerHTML = `
-      <div class="inline-editor" style="margin:2px 8px 4px ${indentPx}px">
-        <span class="tree-key monospace" style="font-size:11px;flex-shrink:0;margin-right:4px;color:var(--accent2)">${escHtml(fullPath)}</span>
-        <input class="inline-input" id="${inputId}" value="${escAttr(prefill)}"
-          onkeydown="handleEditKey(event,'${escAttr(fullPath)}')" />
+      <div class="inline-editor" style="margin:2px 8px 4px ${indentPx}px;flex-wrap:wrap">
+        <span class="tree-key monospace" style="font-size:11px;flex-shrink:0;margin-right:4px;color:var(--accent2);width:100%;margin-bottom:4px">${escHtml(fullPath)}</span>
+        ${isMultiline
+         ? `<textarea class="inline-input" id="${inputId}" rows="3"
+               style="resize:vertical;width:100%;min-height:60px"
+               onkeydown="handleEditKeyTextarea(event,'${escAttr(fullPath)}')">${escHtml(prefill)}</textarea>`
+         : `<input class="inline-input" id="${inputId}" value="${escAttr(prefill)}"
+               placeholder="${entry?.valueType === 'null' ? 'null' : ''}"
+               onkeydown="handleEditKey(event,'${escAttr(fullPath)}')" />`
+      }
         <button class="btn btn-primary btn-sm" onclick="submitEdit('${escAttr(fullPath)}')">Save</button>
         <button class="btn btn-ghost btn-sm"   onclick="cancelEdit()">✕</button>
       </div>`;
@@ -345,11 +419,12 @@ function openInlineEditor(slot, fullPath) {
    if (inp) {
       inp.focus(); inp.select();
       inp.addEventListener('blur', () => {
+         const capturedValue = inp.value;
          setTimeout(() => {
             const active = document.activeElement;
             const editor = slot.querySelector('.inline-editor');
             if (editor && !editor.contains(active)) {
-               if (autoSaveOnBlur) { showSaveStatus(); submitEdit(fullPath); }
+               if (autoSaveOnBlur) { showSaveStatus(); submitEditWithValue(fullPath, capturedValue); }
                else cancelEdit();
             }
          }, 120);
@@ -362,15 +437,31 @@ function handleEditKey(e, fullPath) {
    if (e.key === 'Escape') cancelEdit();
 }
 
+// For textarea editors: Enter adds a newline (normal), Ctrl+Enter saves.
+function handleEditKeyTextarea(e, fullPath) {
+   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { showSaveStatus(); submitEdit(fullPath); }
+   if (e.key === 'Escape') cancelEdit();
+}
+
 async function submitEdit(fullPath) {
    const inputId = 'ei-' + pathToId(fullPath);
    const inp = document.getElementById(inputId);
    if (!inp) return;
+   await submitEditWithValue(fullPath, inp.value);
+}
+
+async function submitEditWithValue(fullPath, rawValue) {
    const entry = findEntry(currentEntries, fullPath);
    const isObj = entry?.valueType === 'object';
-   let jsonValue = inp.value;
-   if (!isObj && entry?.valueType === 'string') {
-      try { JSON.parse(jsonValue); } catch { jsonValue = JSON.stringify(jsonValue); }
+   let jsonValue = rawValue;
+   // Normalise the value based on its current type.
+   if (!isObj) {
+      if (jsonValue === '' || jsonValue.toLowerCase() === 'null') {
+         jsonValue = 'null';   // explicit null
+      } else if (entry?.valueType === 'string' || entry?.valueType === 'arrayItem') {
+         // If the input is not already valid JSON, treat it as a plain string.
+         try { JSON.parse(jsonValue); } catch { jsonValue = JSON.stringify(jsonValue); }
+      }
    }
    const r = await api('PUT', `/files/${enc(currentFile.fileName)}/entries`, { keyPath: fullPath, jsonValue });
    if (r.success) { toast('Saved ✓', 'success'); activeEditorPath = null; await loadEntries(); }
@@ -384,7 +475,9 @@ function findEntry(entries, fullPath) {
    let current = entries;
    let found = null;
    for (let i = 0; i < parts.length; i++) {
-      found = (current ?? []).find(e => e.key === parts[i]);
+      const part = parts[i];
+      // Array items have numeric keys; match by key string or arrayIndex.
+      found = (current ?? []).find(e => e.key === part || String(e.arrayIndex) === part);
       if (!found) return null;
       current = found.children;
    }
@@ -631,6 +724,18 @@ function setView(v) {
       document.getElementById('editor-toolbar-row1').classList.remove('hidden');
       document.getElementById('editor-toolbar-row2').classList.remove('hidden');
    }
+
+   if (v == 'swap') {
+      document.getElementById('swap-keys').innerHTML = '';
+      document.getElementById('swap-source').selectedIndex = 0;
+      document.getElementById('swap-target').selectedIndex = 0;
+      document.getElementById('swap-overwrite').checked = false;
+   }
+   else if (v == 'diff') {
+      document.getElementById('diff-result').innerHTML = '';
+      document.getElementById('diff-source').selectedIndex = 0;
+      document.getElementById('diff-target').selectedIndex = 0;
+   }
 }
 
 // ── Swap ──────────────────────────────────────────────────────────────────
@@ -749,6 +854,48 @@ async function runDiff() {
    container.innerHTML = rows.length
       ? `<table class="diff-table"><thead><tr><th>Key</th><th>${escHtml(source)}</th><th>${escHtml(target)}</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
       : '<div class="text-muted" style="padding:16px">Files are identical.</div>';
+}
+
+
+// ── Array operations ──────────────────────────────────────────────────────
+
+function promptAppendArrayItem(arrayPath, e) {
+   e.stopPropagation();
+   showModal(
+      `Append item to array`,
+      `<div class="form-field" style="width:100%">
+         <span class="field-label">Value (string, number, true/false, null, or JSON object/array)</span>
+         <textarea id="modal-array-value" class="form-input" rows="3"
+            style="width:100%;resize:vertical;font-family:var(--font);font-size:12px"
+            placeholder='e.g.  "https://example.com"  or  42  or  {"key":"val"}'></textarea>
+       </div>`,
+      async () => {
+         const val = document.getElementById('modal-array-value')?.value?.trim() ?? '';
+         const r = await api('POST', `/files/${enc(currentFile.fileName)}/array-append`,
+            { keyPath: arrayPath, jsonValue: val });
+         if (r.success) {
+            toast('Item appended ✓', 'success');
+            expandedPaths.add(arrayPath);   // keep expanded after append
+            await loadEntries();
+         } else toast(r.error, 'error');
+      }
+   );
+   // Focus the textarea after the modal renders
+   setTimeout(() => document.getElementById('modal-array-value')?.focus(), 50);
+}
+
+function confirmDeleteArrayItem(arrayPath, index, e) {
+   e.stopPropagation();
+   showModal(
+      'Remove array item?',
+      `Remove item at index <strong>${index}</strong> from <strong class="monospace">${escHtml(arrayPath)}</strong>?`,
+      async () => {
+         const r = await api('DELETE',
+            `/files/${enc(currentFile.fileName)}/array-item?key=${enc(arrayPath)}&index=${index}`);
+         if (r.success) { toast('Item removed ✓', 'success'); await loadEntries(); }
+         else toast(r.error, 'error');
+      }
+   );
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

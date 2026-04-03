@@ -1,8 +1,8 @@
+using System.Text.Json.Nodes;
 using Codekali.Net.Config.UI.Extensions;
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
 using Microsoft.Extensions.Logging;
-using System.Text.Json.Nodes;
 
 namespace Codekali.Net.Config.UI.Services;
 
@@ -25,24 +25,12 @@ namespace Codekali.Net.Config.UI.Services;
 /// Users trigger backups explicitly via the 💾 Backup button in the UI.
 /// </para>
 /// </remarks>
-internal sealed class AppSettingsService : IAppSettingsService
-{
-    private readonly IConfigFileRepository _repository;
-    private readonly IBackupService _backupService;
-    private readonly ConfigUIOptions _options;
-    private readonly ILogger<AppSettingsService> _logger;
-
-    public AppSettingsService(
-        IConfigFileRepository repository,
+internal sealed class AppSettingsService(
+    IConfigFileRepository repository,
         IBackupService backupService,
-        ConfigUIOptions options,
-        ILogger<AppSettingsService> logger)
-    {
-        _repository = repository;
-        _backupService = backupService;
-        _options = options;
-        _logger = logger;
-    }
+    ConfigUIOptions options,
+    ILogger<AppSettingsService> logger) : IAppSettingsService
+{
 
     // ── Read operations (System.Text.Json) ───────────────────────────────
 
@@ -52,7 +40,7 @@ internal sealed class AppSettingsService : IAppSettingsService
     {
         try
         {
-            var files = _repository
+            var files = repository
                 .DiscoverFiles()
                 .Select(fullPath =>
                 {
@@ -62,8 +50,8 @@ internal sealed class AppSettingsService : IAppSettingsService
                         FileName = fileName,
                         FullPath = fullPath,
                         Environment = ExtractEnvironment(fileName),
-                        Exists = _repository.FileExists(fullPath),
-                        LastModified = _repository.GetLastWriteTime(fullPath)
+                        Exists = repository.FileExists(fullPath),
+                        LastModified = repository.GetLastWriteTime(fullPath)
                     };
                 })
                 .ToList();
@@ -73,7 +61,7 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to discover appsettings files");
+            logger.LogError(ex, "Failed to discover appsettings files");
             return Task.FromResult(
                 OperationResult<IReadOnlyList<AppSettingsFile>>.Failure(ex.Message));
         }
@@ -93,7 +81,7 @@ internal sealed class AppSettingsService : IAppSettingsService
             return OperationResult<IReadOnlyList<ConfigEntry>>.Failure(
                 $"'{fileName}' does not contain a valid JSON object.");
 
-        var entries = JsonHelper.ToEntryTree(root, fileName, _options.MaskSensitiveValues);
+        var entries = JsonHelper.ToEntryTree(root, fileName, options.MaskSensitiveValues);
         return OperationResult<IReadOnlyList<ConfigEntry>>.Success(entries);
     }
 
@@ -103,16 +91,16 @@ internal sealed class AppSettingsService : IAppSettingsService
     {
         try
         {
-            var fullPath = _repository.ResolvePath(fileName);
-            if (!_repository.FileExists(fullPath))
+            var fullPath = repository.ResolvePath(fileName);
+            if (!repository.FileExists(fullPath))
                 return OperationResult<string>.Failure($"File not found: {fileName}");
 
-            var raw = await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+            var raw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
             return OperationResult<string>.Success(raw);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to read {FileName}", fileName);
+            logger.LogError(ex, "Failed to read {FileName}", fileName);
             return OperationResult<string>.Failure(ex.Message);
         }
     }
@@ -146,7 +134,7 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AddEntry failed for {Key} in {File}", keyPath, fileName);
+            logger.LogError(ex, "AddEntry failed for {Key} in {File}", keyPath, fileName);
             return OperationResult.Failure(ex.Message);
         }
     }
@@ -178,7 +166,7 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "UpdateEntry failed for {Key} in {File}", keyPath, fileName);
+            logger.LogError(ex, "UpdateEntry failed for {Key} in {File}", keyPath, fileName);
             return OperationResult.Failure(ex.Message);
         }
     }
@@ -210,7 +198,7 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "DeleteEntry failed for {Key} in {File}", keyPath, fileName);
+            logger.LogError(ex, "DeleteEntry failed for {Key} in {File}", keyPath, fileName);
             return OperationResult.Failure(ex.Message);
         }
     }
@@ -235,17 +223,17 @@ internal sealed class AppSettingsService : IAppSettingsService
 
         try
         {
-            var fullPath = _repository.ResolvePath(fileName);
+            var fullPath = repository.ResolvePath(fileName);
 
             // Write the raw content verbatim — do NOT re-serialise.
             // The user typed this; keep it exactly as authored.
-            await _repository.WriteAllTextAsync(fullPath, rawJson, ct).ConfigureAwait(false);
-            _logger.LogInformation("Saved raw JSON to {FileName}", fileName);
+            await repository.WriteAllTextAsync(fullPath, rawJson, ct).ConfigureAwait(false);
+            logger.LogInformation("Saved raw JSON to {FileName}", fileName);
             return OperationResult.Success();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SaveRawJson failed for {FileName}", fileName);
+            logger.LogError(ex, "SaveRawJson failed for {FileName}", fileName);
             return OperationResult.Failure(ex.Message);
         }
     }
@@ -257,23 +245,22 @@ internal sealed class AppSettingsService : IAppSettingsService
     /// <see cref="JsonCommentPreservingWriter"/>, then persists the result.
     /// </summary>
     /// <param name="fileName">The appsettings file name.</param>
-    /// <param name="mutate">
+    /// <param name="mutate"></param>
     /// <param name="ct"></param>
     /// A function that receives the current raw JSON text and returns the
     /// mutated raw JSON text (with comments intact).
-    /// </param>
     private async Task<OperationResult> PersistMutationAsync(
         string fileName,
         Func<string, string> mutate,
         CancellationToken ct)
     {
-        var fullPath = _repository.ResolvePath(fileName);
+        var fullPath = repository.ResolvePath(fileName);
 
-        if (!_repository.FileExists(fullPath))
+        if (!repository.FileExists(fullPath))
             return OperationResult.Failure($"File not found: {fileName}");
 
         // Read the current raw text — comments included.
-        var raw = await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+        var raw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
 
         // Apply the mutation (Set or Remove) via Newtonsoft — comments survive.
         string updated;
@@ -283,12 +270,12 @@ internal sealed class AppSettingsService : IAppSettingsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "JSON mutation failed for {FileName}", fileName);
+            logger.LogError(ex, "JSON mutation failed for {FileName}", fileName);
             return OperationResult.Failure($"Failed to apply change: {ex.Message}");
         }
 
-        await _repository.WriteAllTextAsync(fullPath, updated, ct).ConfigureAwait(false);
-        _logger.LogInformation("Persisted changes to {FileName}", fileName);
+        await repository.WriteAllTextAsync(fullPath, updated, ct).ConfigureAwait(false);
+        logger.LogInformation("Persisted changes to {FileName}", fileName);
         return OperationResult.Success();
     }
 
@@ -300,16 +287,79 @@ internal sealed class AppSettingsService : IAppSettingsService
     private async Task<(JsonObject? root, string? error)> LoadRootForReadAsync(
         string fileName, CancellationToken ct)
     {
-        var fullPath = _repository.ResolvePath(fileName);
-        if (!_repository.FileExists(fullPath))
+        var fullPath = repository.ResolvePath(fileName);
+        if (!repository.FileExists(fullPath))
             return (null, $"File not found: {fileName}");
 
-        var raw = await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+        var raw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
         var root = JsonHelper.ParseObject(raw);
         if (root is null)
             return (null, $"'{fileName}' does not contain a valid JSON object.");
 
         return (root, null);
+    }
+
+
+    /// <inheritdoc/>
+    public async Task<OperationResult> AppendArrayItemAsync(
+        string fileName, string keyPath, string jsonValue, CancellationToken ct = default)
+    {
+        try
+        {
+            // Read check: if key exists, ensure it is an array.
+            var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
+            if (root is null) return OperationResult.Failure(loadError!);
+
+            var existing = JsonHelper.GetNode(root, keyPath);
+            if (existing is not null && existing is not System.Text.Json.Nodes.JsonArray)
+                return OperationResult.Failure(
+                    $"'{keyPath}' already exists and is not an array. Use Update to replace it.");
+
+            return await PersistMutationAsync(fileName, raw =>
+            {
+                var (result, error) = JsonCommentPreservingWriter.AppendToArray(raw, keyPath, jsonValue);
+                if (error is not null) throw new InvalidOperationException(error);
+                return result;
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "AppendArrayItem failed for {Key} in {File}", keyPath, fileName);
+            return OperationResult.Failure(ex.Message);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<OperationResult> RemoveArrayItemAsync(
+        string fileName, string keyPath, int index, CancellationToken ct = default)
+    {
+        try
+        {
+            var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
+            if (root is null) return OperationResult.Failure(loadError!);
+
+            var existing = JsonHelper.GetNode(root, keyPath);
+            if (existing is null)
+                return OperationResult.Failure($"Key '{keyPath}' not found.");
+            if (existing is not System.Text.Json.Nodes.JsonArray arr)
+                return OperationResult.Failure($"'{keyPath}' is not an array.");
+            if (index < 0 || index >= arr.Count)
+                return OperationResult.Failure(
+                    $"Index {index} is out of range (array has {arr.Count} items).");
+
+            return await PersistMutationAsync(fileName, raw =>
+            {
+                var (result, error) = JsonCommentPreservingWriter.RemoveFromArray(raw, keyPath, index);
+                if (error is not null) throw new InvalidOperationException(error);
+                return result;
+            }, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "RemoveArrayItem failed for index {Index} in {Key} in {File}",
+                index, keyPath, fileName);
+            return OperationResult.Failure(ex.Message);
+        }
     }
 
     private static string ExtractEnvironment(string fileName)

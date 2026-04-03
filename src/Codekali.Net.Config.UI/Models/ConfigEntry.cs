@@ -6,38 +6,44 @@ namespace Codekali.Net.Config.UI.Models;
 /// </summary>
 public sealed class ConfigEntry
 {
-    /// <summary>The dot-notation path of the key, e.g. "ConnectionStrings:Default".</summary>
-    public string Key { get; init; } = string.Empty;
+    /// <summary>The key name at this level (not the full path).</summary>
+    public string Key { get; set; } = string.Empty;
 
-    /// <summary>The raw JSON value for this key (string, number, object, array, or null literal).</summary>
+    /// <summary>
+    /// For array items: the 0-based index within the parent array.
+    /// Null for object properties.
+    /// </summary>
+    public int? ArrayIndex { get; set; }
+
+    /// <summary>The raw JSON-encoded value for scalar/array/null nodes.</summary>
     public string? RawValue { get; set; }
 
-    /// <summary>The inferred value type of this entry.</summary>
-    public ConfigValueType ValueType { get; init; } = ConfigValueType.String;
+    /// <summary>The JSON value type.</summary>
+    public ConfigValueType ValueType { get; set; }
 
-    /// <summary>Whether this key's value is masked because it appears to contain sensitive data.</summary>
+    /// <summary>The file this entry belongs to.</summary>
+    public string SourceFile { get; set; } = string.Empty;
+
+    /// <summary>True when the value is masked for security.</summary>
     public bool IsMasked { get; set; }
 
-    /// <summary>Child entries when <see cref="ValueType"/> is <see cref="ConfigValueType.Object"/>.</summary>
-    public List<ConfigEntry> Children { get; init; } = [];
-
-    /// <summary>The name of the appsettings file this entry belongs to, e.g. "appsettings.Development.json".</summary>
-    public string SourceFile { get; init; } = string.Empty;
+    /// <summary>
+    /// Child entries for Object and Array nodes.
+    /// For arrays: each child represents one item at its index.
+    /// </summary>
+    public List<ConfigEntry>? Children { get; set; }
 }
 
-/// <summary>Describes the JSON value type for a <see cref="ConfigEntry"/>.</summary>
+/// <summary>Discriminates the JSON value type of a <see cref="ConfigEntry"/>.</summary>
 public enum ConfigValueType
 {
-    /// <summary>A plain string or scalar value.</summary>
     String,
-    /// <summary>A numeric value.</summary>
     Number,
-    /// <summary>A boolean value.</summary>
     Boolean,
-    /// <summary>A null literal.</summary>
     Null,
-    /// <summary>A JSON object containing child entries.</summary>
     Object,
-    /// <summary>A JSON array.</summary>
-    Array
+    /// <summary>A JSON array — children hold the individual items.</summary>
+    Array,
+    /// <summary>A single item inside a JSON array.</summary>
+    ArrayItem,
 }

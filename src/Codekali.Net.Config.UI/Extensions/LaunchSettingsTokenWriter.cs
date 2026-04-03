@@ -2,7 +2,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 
-namespace Codekali.Net.Config.UI.Services;
+namespace Codekali.Net.Config.UI.Extensions;
 
 /// <summary>
 /// Generates a cryptographically random access token for the Config UI endpoint
