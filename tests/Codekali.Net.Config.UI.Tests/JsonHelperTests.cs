@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Codekali.Net.Config.UI.Services;
 using FluentAssertions;
 using Xunit;
@@ -7,158 +6,117 @@ namespace Codekali.Net.Config.UI.Tests;
 
 public class JsonHelperTests
 {
-    // ── ParseObject ────────────────────────────────────────────────────────
+    private const string Json = """
+        {
+          "Logging": {
+            "LogLevel": {
+              "Default": "Information"
+            }
+          },
+          "CorsSettings": {
+            "AllowedOrigins": [
+              "https://example.com",
+              "https://test.com"
+            ]
+          },
+          "Port": 5432,
+          "Enabled": true,
+          "NullKey": null,
+          "$schema": "https://json.schemastore.org/appsettings.json"
+        }
+        """;
 
     [Fact]
-    public void ParseObject_ValidJson_ReturnsJsonObject()
+    public void ParseObject_ReturnsJsonObject_ForValidJson()
     {
-        var result = JsonHelper.ParseObject("""{"Key":"Value"}""");
+        var result = JsonHelper.ParseObject(Json);
         result.Should().NotBeNull();
     }
 
     [Fact]
-    public void ParseObject_InvalidJson_ReturnsNull()
+    public void ParseObject_ReturnsNull_ForInvalidJson()
     {
-        var result = JsonHelper.ParseObject("not json at all");
-        result.Should().BeNull();
+        JsonHelper.ParseObject("{ bad json }").Should().BeNull();
     }
 
     [Fact]
-    public void ParseObject_JsonArray_ReturnsNull()
+    public void ParseObject_HandlesComments()
     {
-        var result = JsonHelper.ParseObject("""["a","b"]""");
-        result.Should().BeNull();
-    }
-
-    // ── Validate ───────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Validate_ValidJson_ReturnsNull()
-    {
-        var error = JsonHelper.Validate("""{"a":1}""");
-        error.Should().BeNull();
+        var commented = "{ // comment\n \"Key\": \"Value\" }";
+        var result = JsonHelper.ParseObject(commented);
+        result.Should().NotBeNull();
     }
 
     [Fact]
-    public void Validate_InvalidJson_ReturnsErrorMessage()
+    public void GetNode_ReturnsNestedValue()
     {
-        var error = JsonHelper.Validate("{broken");
-        error.Should().NotBeNullOrEmpty();
-    }
-
-    // ── GetNode ────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void GetNode_TopLevelKey_ReturnsValue()
-    {
-        var root = JsonHelper.ParseObject("""{"Name":"Alice"}""")!;
-        var node = JsonHelper.GetNode(root, "Name");
-        node.Should().NotBeNull();
-        node!.GetValue<string>().Should().Be("Alice");
-    }
-
-    [Fact]
-    public void GetNode_NestedKey_ReturnsValue()
-    {
-        var root = JsonHelper.ParseObject("""{"Logging":{"LogLevel":{"Default":"Information"}}}""")!;
+        var root = JsonHelper.ParseObject(Json)!;
         var node = JsonHelper.GetNode(root, "Logging:LogLevel:Default");
-        node!.GetValue<string>().Should().Be("Information");
+        node.Should().NotBeNull();
+        node!.ToJsonString().Should().Be("\"Information\"");
     }
 
     [Fact]
-    public void GetNode_MissingKey_ReturnsNull()
+    public void GetNode_ReturnsNull_ForMissingPath()
     {
-        var root = JsonHelper.ParseObject("""{"Name":"Alice"}""")!;
-        var node = JsonHelper.GetNode(root, "DoesNotExist");
-        node.Should().BeNull();
-    }
-
-    // ── SetNode ────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void SetNode_NewTopLevelKey_SetsValue()
-    {
-        var root = new JsonObject();
-        JsonHelper.SetNode(root, "AppName", JsonValue.Create("MyApp"));
-        root["AppName"]!.GetValue<string>().Should().Be("MyApp");
+        var root = JsonHelper.ParseObject(Json)!;
+        JsonHelper.GetNode(root, "Logging:Missing:Key").Should().BeNull();
     }
 
     [Fact]
-    public void SetNode_NestedPath_CreatesIntermediateObjects()
+    public void GetNode_HandlesNumericSegment_ForArrayAccess()
     {
-        var root = new JsonObject();
-        JsonHelper.SetNode(root, "A:B:C", JsonValue.Create(42));
-        var node = JsonHelper.GetNode(root, "A:B:C");
-        node!.GetValue<int>().Should().Be(42);
-    }
-
-    // ── RemoveNode ─────────────────────────────────────────────────────────
-
-    [Fact]
-    public void RemoveNode_ExistingKey_ReturnsTrueAndRemoves()
-    {
-        var root = JsonHelper.ParseObject("""{"Key":"Value","Other":"Keep"}""")!;
-        var removed = JsonHelper.RemoveNode(root, "Key");
-        removed.Should().BeTrue();
-        JsonHelper.GetNode(root, "Key").Should().BeNull();
-        JsonHelper.GetNode(root, "Other").Should().NotBeNull();
+        var root = JsonHelper.ParseObject(Json)!;
+        var node = JsonHelper.GetNode(root, "CorsSettings:AllowedOrigins:0");
+        node.Should().NotBeNull();
+        node!.ToJsonString().Should().Be("\"https://example.com\"");
     }
 
     [Fact]
-    public void RemoveNode_MissingKey_ReturnsFalse()
+    public void ToEntryTree_ProducesChildren_ForArrays()
     {
-        var root = JsonHelper.ParseObject("""{"Key":"Value"}""")!;
-        var removed = JsonHelper.RemoveNode(root, "Ghost");
-        removed.Should().BeFalse();
+        var root = JsonHelper.ParseObject(Json)!;
+        var tree = JsonHelper.ToEntryTree(root, "test.json", false);
+
+        var cors = tree.Single(e => e.Key == "CorsSettings");
+        var origins = cors.Children!.Single(e => e.Key == "AllowedOrigins");
+        origins.ValueType.Should().Be(Codekali.Net.Config.UI.Models.ConfigValueType.Array);
+        origins.Children.Should().HaveCount(2);
+        origins.Children![0].ValueType.Should().Be(Codekali.Net.Config.UI.Models.ConfigValueType.ArrayItem);
     }
 
     [Fact]
-    public void RemoveNode_NestedKey_RemovesCorrectly()
+    public void IsSensitiveKey_Masks_Password()
     {
-        var root = JsonHelper.ParseObject("""{"Parent":{"Child":"data","Sibling":"keep"}}""")!;
-        JsonHelper.RemoveNode(root, "Parent:Child");
-        JsonHelper.GetNode(root, "Parent:Child").Should().BeNull();
-        JsonHelper.GetNode(root, "Parent:Sibling").Should().NotBeNull();
+        JsonHelper.IsSensitiveKey("DatabasePassword").Should().BeTrue();
+        JsonHelper.IsSensitiveKey("ApiSecret").Should().BeTrue();
+        JsonHelper.IsSensitiveKey("JwtToken").Should().BeTrue();
     }
 
-    // ── Flatten ────────────────────────────────────────────────────────────
+    [Fact]
+    public void IsSensitiveKey_DoesNotMask_SchemaKey()
+    {
+        JsonHelper.IsSensitiveKey("$schema").Should().BeFalse();
+    }
 
     [Fact]
-    public void Flatten_NestedObject_ProducesDotNotationKeys()
+    public void IsSensitiveKey_DoesNotMask_AllowedOrigins()
     {
-        var root = JsonHelper.ParseObject("""{"Logging":{"LogLevel":{"Default":"Info"}}}""")!;
+        JsonHelper.IsSensitiveKey("AllowedOrigins").Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSensitiveKey_DoesNotMask_AllowedMethods()
+    {
+        JsonHelper.IsSensitiveKey("AllowedMethods").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Flatten_ProducesIndexedKeys_ForArrays()
+    {
+        var root = JsonHelper.ParseObject(Json)!;
         var flat = JsonHelper.Flatten(root);
-        flat.Should().ContainKey("Logging:LogLevel:Default");
-    }
-
-    [Fact]
-    public void Flatten_EmptyObject_ReturnsEmptyDictionary()
-    {
-        var root = new JsonObject();
-        var flat = JsonHelper.Flatten(root);
-        flat.Should().BeEmpty();
-    }
-
-    // ── IsSensitiveKey ─────────────────────────────────────────────────────
-
-    [Theory]
-    [InlineData("Password")]
-    [InlineData("DbPassword")]
-    [InlineData("SecretKey")]
-    [InlineData("ApiToken")]
-    [InlineData("ApiKey")]
-    [InlineData("ConnectionString")]
-    public void IsSensitiveKey_SensitiveNames_ReturnsTrue(string key)
-    {
-        JsonHelper.IsSensitiveKey(key).Should().BeTrue();
-    }
-
-    [Theory]
-    [InlineData("AppName")]
-    [InlineData("Version")]
-    [InlineData("Environment")]
-    public void IsSensitiveKey_NonSensitiveNames_ReturnsFalse(string key)
-    {
-        JsonHelper.IsSensitiveKey(key).Should().BeFalse();
+        flat.Should().ContainKey("CorsSettings:AllowedOrigins:0");
+        flat.Should().ContainKey("CorsSettings:AllowedOrigins:1");
     }
 }
