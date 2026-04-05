@@ -7,15 +7,17 @@
 ## ✨ Features
 
 - 📂 **Auto-detect** all `appsettings*.json` files at runtime
-- 🌳 **Tree view** for nested JSON — expand, edit, delete inline
-- ✏️ **Raw JSON editor** with validation and format-on-demand
+- 🌳 **Tree view** — expand, edit, add, delete inline with full array support
+- 🔢 **Array editing** — expand arrays, append items, remove items by index
+- ✏️ **Raw JSON editor** powered by Monaco (VS Code engine) with syntax highlighting, bracket matching, and `Ctrl+S` to save
+- 💬 **Comment preservation** — `//` and `/* */` comments survive every save
 - ⇄ **Move / Copy** configuration keys between environment files
 - ⊞ **Side-by-side diff** comparing any two environment files
+- 🔄 **Hot reload detection** — banner notification when a file changes externally
 - 💾 **Never auto-saves** — all changes require an explicit save action
-- 🔒 **Auto-backup** before every write (`.bak` files alongside originals)
-- 🙈 **Sensitive value masking** (`password`, `secret`, `token`, `key`)
+- 🔒 **Sensitive value masking** (`password`, `secret`, `token`, `apikey`)
 - 🌙 **Dark / Light mode** toggle
-- 🔐 **Development-only** by default — optional access token protection
+- 🔐 **Development-only** by default — optional access token or ASP.NET Core Authorization policy
 
 ---
 
@@ -53,14 +55,36 @@ https://localhost:5001/config-ui
 ```csharp
 builder.Services.AddConfigUI(options =>
 {
-    options.PathPrefix          = "/config-ui";            // UI URL
-    options.AccessToken         = "your-secret-token";     // optional bearer token
-    options.AllowedEnvironments = ["Development","Staging"]; // ["*"] = all envs
-    options.MaskSensitiveValues = true;                    // mask password/secret/token/key
-    options.ReadOnly            = false;                   // prevent all edits
-    options.ConfigDirectory     = null;                    // defaults to CWD
+    options.PathPrefix            = "/config-ui";
+    options.AccessToken           = "your-secret-token";     // simple token auth
+    options.AuthorizationPolicy   = "ConfigUIAccess";         // or ASP.NET Core policy
+    options.AllowedEnvironments   = ["Development","Staging"];
+    options.MaskSensitiveValues   = true;
+    options.ReadOnly              = false;
+    options.EnableAutoToken       = false;                    // auto-generate token on first run
+    options.EnableHotReloadDetection = true;
+    options.ConfigDirectory       = null;                     // defaults to CWD
 });
 ```
+
+### Authorization policy example
+```csharp
+builder.Services.AddAuthorization(o =>
+    o.AddPolicy("ConfigUIAccess", p => p.RequireRole("Admin")));
+
+app.UseConfigUI(options => options.AuthorizationPolicy = "ConfigUIAccess");
+```
+
+### Auto token generation
+```csharp
+builder.Services.AddConfigUI(options => options.EnableAutoToken = true);
+// Token is generated on first run and written to Properties/launchSettings.json
+// as CONFIGUI_ACCESS_TOKEN. Subsequent runs load it from the environment variable.
+```
+
+### IOptions reload guidance
+
+> ⚠️ Changes written by the Config UI take effect at runtime only when consuming code uses `IOptionsSnapshot<T>` (per-request) or `IOptionsMonitor<T>` (singleton-safe) rather than `IOptions<T>` which snapshots at startup.
 
 Access token is checked via:
 - Header: `X-Config-Token: your-secret-token`

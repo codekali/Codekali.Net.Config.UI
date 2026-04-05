@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
@@ -11,28 +11,107 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.0.1</Version>
-    <Authors>Codekali</Authors>
+    <Version>1.1.5</Version>
+    <Authors>Codekali - Jawwad A. Ayyubi</Authors>
     <Company>Codekali</Company>
     <Product>Codekali.Net.Config.UI</Product>
     <Description>A plug-and-play .NET library that provides a browser-based GUI for managing appsettings.json configuration files across environments.</Description>
+	 <PackageReleaseNotes>
+	  v1.1.5 — Full appsettings management suite.
+	  - Monaco Editor integration (VS Code engine) for Raw JSON editing
+	  - JSON comment preservation across all tree view and raw editor operations
+	  - Array support: expand, append items, remove items, update by index
+	  - Null value editing, multi-line value textarea, Ctrl+Enter to save
+	  - ASP.NET Core Identity Authorization policy support
+	  - Hot reload detection with dismissible banner
+	  - Fixed sensitive key masking ($schema, AllowedOrigins no longer masked)
+	  - Auto-generated access token persisted to launchSettings.json (opt-in)
+	  - CSS and JS minification on Release builds
+	 </PackageReleaseNotes>
     <PackageTags>appsettings;configuration;ui;blazor;devtools;dotnet</PackageTags>
     <PackageProjectUrl>https://github.com/Codekali/Codekali.Net.Config.UI</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Codekali/Codekali.Net.Config.UI</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+	 <PackageIcon>icon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <Title>Codekali.Net.Config.UI</Title>
     <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
+	 <RepositoryType>git</RepositoryType>
+	 <RepositoryBranch>main</RepositoryBranch>
   </PropertyGroup>
 
-  <!-- Embed all wwwroot files as resources so the middleware can serve them without file system access -->
-  <ItemGroup>
-    <EmbeddedResource Include="UI\wwwroot\**\*" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="NUglify" Version="1.21.0" />
+	</ItemGroup>
 
-	<ItemGroup Condition="'$(Configuration)' == 'Release'">
-		<PackageReference Include="BuildBundlerMinifier" Version="3.2.449" />
+	<UsingTask TaskName="MinifyCss"
+				  TaskFactory="RoslynCodeTaskFactory"
+				  AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<ParameterGroup>
+			<InputFile ParameterType="System.String" Required="true" />
+			<OutputFile ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+        var css = File.ReadAllText(InputFile);
+        // Simple but effective: collapse whitespace, strip comments
+        var result = System.Text.RegularExpressions.Regex.Replace(css, @"/\*[\s\S]*?\*/", "");
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s*([{};:,>~+])\s*", "$1");
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ").Trim();
+        File.WriteAllText(OutputFile, result);
+      ]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<UsingTask TaskName="MinifyJs"
+				  TaskFactory="RoslynCodeTaskFactory"
+				  AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<ParameterGroup>
+			<InputFile ParameterType="System.String" Required="true" />
+			<OutputFile ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+        // Strip single-line comments, collapse whitespace.
+        // Intentionally conservative — does not rename variables.
+        var js = File.ReadAllText(InputFile);
+        var result = System.Text.RegularExpressions.Regex.Replace(js, @"//[^\n]*", "");
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ").Trim();
+        File.WriteAllText(OutputFile, result);
+      ]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<Target Name="MinifyAssets"
+			  BeforeTargets="BeforeBuild"
+			  Condition="'$(Configuration)' == 'Release'">
+		<MinifyCss
+		  InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.css"
+		  OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.min.css" />
+		<MinifyJs
+		  InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.js"
+		  OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js" />
+		<Message Text="[ConfigUI] Assets minified for Release build." Importance="high" />
+	</Target>
+
+	<ItemGroup>
+		<EmbeddedResource Include="UI\wwwroot\**\*" />
+		<!--
+       Exclude .min files from being embedded in Debug builds where they
+       do not exist yet, to avoid missing-file build errors.
+     -->
+		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*"
+								Condition="'$(Configuration)' != 'Release'" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
 	<!-- Grant the test project access to internal types (services are internal sealed by design) -->
@@ -45,6 +124,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+    <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="2.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
@@ -52,6 +132,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Text.Json" Version="10.0.5" />
   </ItemGroup>
 

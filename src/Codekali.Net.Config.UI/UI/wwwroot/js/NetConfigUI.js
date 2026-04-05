@@ -1,17 +1,22 @@
-﻿// ── State ─────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────
 let files = [];
 let currentFile = null;
-let currentEntries = [];   // raw API response — nested tree from server
-let expandedPaths = new Set();   // Set of full dot-paths that are expanded
-let revealedPaths = new Set();   // Set of full dot-paths whose values are revealed
-let activeEditorPath = null;     // full dot-path currently being edited inline
-let autoSaveOnBlur = true;        // when true, blur on the inline input triggers save
+let currentEntries = [];
+let expandedPaths = new Set();
+let revealedPaths = new Set();
+let activeEditorPath = null;
+let autoSaveOnBlur = true;
 let searchQuery = '';
 let editorMode = 'tree';
 let currentView = 'editor';
-let pendingConfirm = null;
 const revealedValues = {};
 const _token = new URLSearchParams(window.location.search).get('token') || '';
+
+// ── Monaco state ──────────────────────────────────────────────────────────
+let _monacoInstance = null;
+let _monacoModels = {};
+let _monacoFallback = false;
+let _monacoInitPromise = null;
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -39,28 +44,119 @@ async function loadFileList() {
    const r = await api('GET', '/files');
    if (!r.success) { toast('Failed to load files: ' + r.error, 'error'); return; }
    files = r.data;
+
+   _lastKnownTimestamps = Object.fromEntries(files.map(f => [f.fileName, new Date(f.lastModified).getTime()]));
+   startHotReloadPolling();
+
    renderFileList();
-   populateSwapDiffSelects();
+   // Fix #1 — repopulate only the diff selects on reload; the swap selects are
+   // populated separately so that a running swap operation is not disturbed.
+   populateDiffSelects();
+   // Only populate swap selects if they have never been populated (first load).
+   // After executeSwap() completes we call refreshSwapKeysOnly() instead.
+   if (!_swapSelectsPopulated) {
+      populateSwapSelects();
+      _swapSelectsPopulated = true;
+   }
    updateWelcomeStats();
 }
 
+// ── Hot reload detection ──────────────────────────────────────────────────
+// Polls the server every 3s for file modification timestamps.
+// Shows a dismissible banner when an external change is detected.
+
+let _lastKnownTimestamps = {};
+let _hotReloadInterval = null;
+let _hotReloadDismissed = false;
+
+function startHotReloadPolling() {
+   if (_hotReloadInterval) return;
+   _hotReloadInterval = setInterval(checkHotReload, 3000);
+}
+
+function stopHotReloadPolling() {
+   clearInterval(_hotReloadInterval);
+   _hotReloadInterval = null;
+}
+
+async function checkHotReload() {
+   if (!currentFile) return;
+   try {
+      const r = await api('GET', '/hot-reload-status');
+      if (!r.success) return;
+
+      const changed = Object.entries(r.data).filter(([name, ts]) =>
+         _lastKnownTimestamps[name] !== undefined &&
+         _lastKnownTimestamps[name] !== ts
+      ).map(([name]) => name);
+
+      // Update baseline
+      _lastKnownTimestamps = { ...r.data };
+
+      if (changed.length === 0) return;
+
+      // Only show banner if we haven't already shown one for this change
+      if (!_hotReloadDismissed)
+         showHotReloadBanner(changed);
+
+      // If the changed file is the one currently open, auto-reload tree
+      if (changed.includes(currentFile?.fileName))
+         await loadEntries();
+
+   } catch { /* network blip — ignore */ }
+}
+
+function showHotReloadBanner(changedFiles) {
+   // Remove any existing banner first
+   document.getElementById('hot-reload-banner')?.remove();
+
+   const banner = document.createElement('div');
+   banner.id = 'hot-reload-banner';
+   banner.className = 'hot-reload-banner';
+   banner.innerHTML = `
+      <span>🔄 <strong>${changedFiles.join(', ')}</strong> was modified externally and has been reloaded.</span>
+      <button class="btn btn-ghost btn-sm" onclick="dismissHotReloadBanner()" style="margin-left:auto">✕ Dismiss</button>
+   `;
+
+   // Insert above the tree/raw view, below the toolbar
+   const panel = document.getElementById('view-editor');
+   if (panel) panel.insertAdjacentElement('afterbegin', banner);
+
+   // Auto-dismiss after 8s
+   setTimeout(dismissHotReloadBanner, 8000);
+}
+
+function dismissHotReloadBanner() {
+   document.getElementById('hot-reload-banner')?.remove();
+   _hotReloadDismissed = true;
+   // Reset dismissed flag after 30s so next external change shows again
+   setTimeout(() => { _hotReloadDismissed = false; }, 30000);
+}
+
+// Tracks whether the swap <select> elements have been populated at least once.
+let _swapSelectsPopulated = false;
+
 function updateWelcomeStats() {
-   // file count
-   document.getElementById('ws-files').textContent = files.length;
+   const count = files.length;
+   const envs = new Set(files.map(f => f.environment)).size;
+   const sorted = [...files].sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+   const modText = sorted.length
+      ? `${sorted[0].fileName} · ${timeAgo(sorted[0].lastModified)}`
+      : '–';
 
-   // unique environments (excluding duplicates like two Dev files)
-   const envs = new Set(files.map(f => f.environment));
-   document.getElementById('ws-envs').textContent = envs.size;
+   // #editor-no-file stats
+   _setText('ws-files', count);
+   _setText('ws-envs', envs);
+   _setText('ws-modified', modText);
+   // #view-guide stats
+   _setText('gs-files', count);
+   _setText('gs-envs', envs);
+   _setText('gs-modified', modText);
+}
 
-   // most recently modified file
-   const sorted = [...files].sort((a, b) =>
-      new Date(b.lastModified) - new Date(a.lastModified));
-   if (sorted.length) {
-      const newest = sorted[0];
-      const ago = timeAgo(newest.lastModified);
-      document.getElementById('ws-modified').textContent =
-         `${newest.fileName} · ${ago}`;
-   }
+function _setText(id, val) {
+   const el = document.getElementById(id);
+   if (el) el.textContent = val;
 }
 
 function timeAgo(isoString) {
@@ -80,19 +176,12 @@ function toggleAutoSave(btn) {
 
 function showSaveStatus() {
    if (!autoSaveOnBlur) return;
-
    const status = document.getElementById('save-status');
-   status.textContent = "Saving...";
-   status.style.opacity = "1";
-
-   // Simulate network delay
+   status.textContent = 'Saving...';
+   status.style.opacity = '1';
    setTimeout(() => {
-      status.textContent = "Saved";
-
-      // Fade out after 2 seconds
-      setTimeout(() => {
-         status.style.opacity = "0";
-      }, 2000);
+      status.textContent = 'Saved';
+      setTimeout(() => { status.style.opacity = '0'; }, 2000);
    }, 600);
 }
 
@@ -115,18 +204,38 @@ function renderFileList() {
 
 async function selectFile(fileName) {
    currentFile = files.find(f => f.fileName === fileName);
-   expandedPaths.clear(); revealedPaths.clear();
+   expandedPaths.clear();
+   revealedPaths.clear();
    Object.keys(revealedValues).forEach(k => delete revealedValues[k]);
-   activeEditorPath = null; searchQuery = '';
+   activeEditorPath = null;
+   searchQuery = '';
    document.getElementById('search-input').value = '';
+
    renderFileList();
-   document.getElementById('editor-toolbar-row1').style.display = 'flex';
+
+   // Fix #2 — toolbar rows are revealed HERE (only after a file is selected)
+   // and are hidden again by hideToolbar() if the user deselects / clears.
    document.getElementById('editor-toolbar-row1').classList.remove('hidden');
    document.getElementById('editor-toolbar-row2').classList.remove('hidden');
    document.getElementById('toolbar-title').innerHTML =
       `<strong>${escHtml(fileName)}</strong> <span class="text-muted monospace" style="font-size:11px">— ${escHtml(currentFile.environment)}</span>`;
+
+   // Hide the "no file" landing state and show the content area
+   document.getElementById('editor-no-file').classList.add('hidden');
+
    setView('editor');
    await loadEntries();
+}
+
+// Hides toolbar rows and restores the "no file" landing state.
+// Called when there is no selected file and the editor view is active.
+function _showNoFileState() {
+   document.getElementById('editor-toolbar-row1').classList.add('hidden');
+   document.getElementById('editor-toolbar-row2').classList.add('hidden');
+   document.getElementById('editor-no-file').classList.remove('hidden');
+   document.getElementById('tree-view').classList.add('hidden');
+   document.getElementById('raw-view').classList.add('hidden');
+   document.getElementById('editor-loading').style.display = 'none';
 }
 
 // ── Load entries ──────────────────────────────────────────────────────────
@@ -140,19 +249,17 @@ async function loadEntries() {
    } else {
       const r = await api('GET', `/files/${enc(currentFile.fileName)}/raw`);
       if (!r.success) { toast(r.error, 'error'); showEditorLoading(false); return; }
-      document.getElementById('raw-editor-ta').value = r.data;
+      await setRawEditorContent(r.data);
       showEditorLoading(false);
       document.getElementById('raw-view').classList.remove('hidden');
    }
 }
 
-async function refreshFile() { if (currentFile) { activeEditorPath = null; await loadEntries(); } }
+async function refreshFile() {
+   if (currentFile) { activeEditorPath = null; await loadEntries(); }
+}
 
 // ── Tree rendering ────────────────────────────────────────────────────────
-// Each node is identified by its FULL colon-separated path from the root,
-// e.g. "Logging:LogLevel:Default". This avoids collisions between nodes
-// that share the same key name at different levels.
-
 function renderTree() {
    const container = document.getElementById('tree-view');
    const entries = searchQuery ? filterEntries(currentEntries, searchQuery, '') : currentEntries;
@@ -161,8 +268,6 @@ function renderTree() {
       : '<div class="text-muted" style="padding:16px;font-size:13px">No keys match your search.</div>';
    showEditorLoading(false);
    container.classList.remove('hidden');
-
-   // Restore active inline editor after re-render
    if (activeEditorPath) {
       const slot = document.getElementById('slot-' + pathToId(activeEditorPath));
       if (slot) openInlineEditor(slot, activeEditorPath);
@@ -174,26 +279,26 @@ function renderNodes(nodes, depth, parentPath) {
 }
 
 function renderNode(node, depth, parentPath) {
-   // Full colon-separated path — uniquely identifies this node in the entire tree
    const fullPath = parentPath ? `${parentPath}:${node.key}` : node.key;
    const slotId = 'slot-' + pathToId(fullPath);
    const indent = depth * 20;
-
    const isObj = node.valueType === 'object';
+   const isArr = node.valueType === 'array';
+   const isArrItem = node.valueType === 'arrayItem';
+   const isExpandable = (isObj || isArr) && (node.children?.length > 0 || isArr);
    const isExpanded = expandedPaths.has(fullPath);
    const isRevealed = revealedPaths.has(fullPath);
-   const isEditing = activeEditorPath === fullPath;
 
-   // ── Value display ──
+   // ── Value display ──────────────────────────────────────────────────────
    let valueHtml = '';
    if (isObj) {
-      // Object section: show count badge; value column is empty
-      valueHtml = `<span class="tree-type-badge" style="margin-left:4px">{${node.children?.length ?? 0}}</span>`;
+      const count = node.children?.length ?? 0;
+      valueHtml = `<span class="tree-type-badge" style="margin-left:4px">{${count}}</span>`;
+   } else if (isArr) {
+      const count = node.children?.length ?? 0;
+      valueHtml = `<span class="tree-type-badge" style="margin-left:4px">[${count}]</span>`;
    } else {
-      // Determine display value
       let rawVal = node.rawValue;
-
-      // Strip surrounding quotes from JSON strings for display
       let displayVal;
       if (node.isMasked && !isRevealed) {
          displayVal = '••••••••';
@@ -201,79 +306,109 @@ function renderNode(node, depth, parentPath) {
          displayVal = revealedValues[fullPath.trim()] ?? '';
       } else if (rawVal === null || rawVal === undefined || rawVal === 'null') {
          displayVal = 'null';
-      } else if (node.valueType === 'string') {
-         displayVal = rawVal.startsWith('"') && rawVal.endsWith('"')
-            ? rawVal.slice(1, -1)
-            : rawVal;
+      } else if (node.valueType === 'string' || node.valueType === 'arrayItem') {
+         // Strip surrounding quotes for display; keep null as-is.
+         displayVal = (rawVal.startsWith('"') && rawVal.endsWith('"'))
+            ? rawVal.slice(1, -1) : rawVal;
       } else {
          displayVal = rawVal;
       }
-
-      const cls = (node.isMasked && !isRevealed) ? 'masked' : node.valueType;
+      const cls = (node.isMasked && !isRevealed) ? 'masked'
+         : isArrItem ? 'string'
+            : node.valueType;
       valueHtml = `<span class="tree-colon">:</span><span class="tree-value ${cls}">${escHtml(displayVal)}</span>`;
-
       if (node.isMasked) {
          valueHtml += ` <button class="btn btn-ghost btn-sm" onclick="toggleReveal('${escAttr(fullPath)}',event)"
                 style="padding:1px 5px;font-size:11px">${isRevealed ? '🙈 hide' : '👁 reveal'}</button>`;
       }
    }
 
-   // ── Expand toggle ──
-   const toggleHtml = isObj
+   // ── Expand toggle ──────────────────────────────────────────────────────
+   const toggleHtml = isExpandable
       ? `<span class="tree-toggle" onclick="toggleExpand('${escAttr(fullPath)}',event)">${isExpanded ? '▾' : '▸'}</span>`
       : `<span class="tree-toggle"></span>`;
 
-   // ── Row click (expand for objects) ──
-   const rowClick = isObj ? `onclick="toggleExpand('${escAttr(fullPath)}',event)"` : '';
+   const rowClick = isExpandable ? `onclick="toggleExpand('${escAttr(fullPath)}',event)"` : '';
 
-   // ── Actions ──
-   // Edit is triggered by double-click on the row (see ondblclick on tree-row below).
-   // Only a delete button remains visible on hover.
+   // ── Actions ────────────────────────────────────────────────────────────
    let actions = '';
    if (!window.READONLY) {
-      const delBtn = `<button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)">✕</button>`;
-      actions = `<span class="row-actions">${delBtn}</span>`;
+      if (isArr) {
+         // Arrays: append-item button + delete whole array
+         actions = `<span class="row-actions">
+            <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)" title="Append item">+ item</button>
+            <button class="btn btn-danger btn-sm"    onclick="confirmDelete('${escAttr(fullPath)}',event)" title="Delete array">✕</button>
+         </span>`;
+      } else if (isArrItem) {
+         // Array items: delete this specific item by index
+         const parentArr = parentPath;
+         const idx = node.arrayIndex ?? parseInt(node.key, 10);
+         actions = `<span class="row-actions">
+            <button class="btn btn-danger btn-sm" onclick="confirmDeleteArrayItem('${escAttr(parentArr)}',${idx},event)" title="Remove item">✕</button>
+         </span>`;
+      } else {
+         actions = `<span class="row-actions">
+            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)">✕</button>
+         </span>`;
+      }
    }
 
-   // ── Children ──
+   // ── Children ───────────────────────────────────────────────────────────
    let childHtml = '';
-   if (isObj && isExpanded && node.children?.length) {
-      childHtml = `<div>${renderNodes(node.children, depth + 1, fullPath)}</div>`;
+   if (isExpanded && node.children?.length) {
+      if (isArr) {
+         // Render array items — pass fullPath as the parentPath so
+         // each item's path becomes e.g. CorsSettings:AllowedOrigins:0
+         childHtml = `<div>${renderArrayItems(node.children, depth + 1, fullPath)}</div>`;
+      } else {
+         childHtml = `<div>${renderNodes(node.children, depth + 1, fullPath)}</div>`;
+      }
+   } else if (isArr && isExpanded && (!node.children || node.children.length === 0)) {
+      // Empty array — show affordance to add first item
+      if (!window.READONLY) {
+         childHtml = `<div style="padding-left:${8 + (depth + 1) * 20}px;padding-top:4px">
+            <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)">+ Add first item</button>
+         </div>`;
+      }
    }
 
-   const dblClick = window.READONLY ? '' : `ondblclick="startEdit('${escAttr(fullPath)}',${isObj},event)"`;
+   // ── Double-click to edit (not for arrays, not for array item objects) ──
+   const canEdit = !window.READONLY && !isArr && !(isObj && isArrItem);
+   const dblClick = canEdit ? `ondblclick="startEdit('${escAttr(fullPath)}',${isObj || isArrItem && node.valueType === 'object'},event)"` : '';
+
    return `<div class="tree-node">
             <div class="tree-row" style="padding-left:${8 + indent}px;cursor:${window.READONLY ? 'default' : 'pointer'}" ${rowClick} ${dblClick}
-              title="${window.READONLY ? '' : 'Double-click to edit'}">
+              title="${canEdit ? 'Double-click to edit' : ''}">
               ${toggleHtml}
               <span class="tree-key">${escHtml(node.key)}</span>
               ${valueHtml}
               ${actions}
             </div>
-            <div id="${slotId}" class="${isEditing ? '' : 'hidden'}"></div>
+            <div id="${slotId}" class="hidden"></div>
             ${childHtml}
           </div>`;
 }
 
-// Convert a full colon-path to a safe DOM id (replace non-alphanum with _)
-function pathToId(path) {
-   return path.replace(/[^a-zA-Z0-9]/g, '_');
+// Renders array items — key is the numeric index, parentPath is the array's path.
+function renderArrayItems(items, depth, arrayPath) {
+   return items.map(item => {
+      // For array items the "key" is the index number.
+      // We override parentPath so fullPath = arrayPath:0, arrayPath:1 etc.
+      return renderNode(item, depth, arrayPath);
+   }).join('');
 }
+
+function pathToId(path) { return path.replace(/[^a-zA-Z0-9]/g, '_'); }
 
 function toggleExpand(fullPath, e) {
    e.stopPropagation();
-   if (expandedPaths.has(fullPath)) expandedPaths.delete(fullPath);
-   else expandedPaths.add(fullPath);
+   if (expandedPaths.has(fullPath)) expandedPaths.delete(fullPath); else expandedPaths.add(fullPath);
    renderTree();
 }
 
 async function toggleReveal(fullPath, e) {
    e.stopPropagation();
-   if (revealedPaths.has(fullPath)) {
-      revealedPaths.delete(fullPath);
-      renderTree();
-      return;
-   }
+   if (revealedPaths.has(fullPath)) { revealedPaths.delete(fullPath); renderTree(); return; }
    if (!revealedValues[fullPath.trim()]) {
       const r = await api('GET', `/files/${enc(currentFile.fileName)}/value?key=${enc(fullPath)}`);
       if (!r.success) { toast('Could not reveal value: ' + r.error, 'error'); return; }
@@ -298,94 +433,89 @@ function filterEntries(entries, q, parentPath) {
          result.push(e);
       } else if (e.children?.length) {
          const fc = filterEntries(e.children, q, fullPath);
-         if (fc.length) {
-            expandedPaths.add(fullPath);   // auto-expand matched parent
-            result.push({ ...e, children: fc });
-         }
+         if (fc.length) { expandedPaths.add(fullPath); result.push({ ...e, children: fc }); }
       }
    }
    return result;
 }
 
 // ── Inline editor ─────────────────────────────────────────────────────────
-// fullPath  — the complete colon-path used as the API keyPath
-// rawValue  — the JSON-encoded current value (used to pre-fill the input)
-// isObj     — when true we edit the section as raw JSON
-
 async function startEdit(fullPath, isObj, e) {
    e.stopPropagation();
    if (activeEditorPath === fullPath) return;
-
-   // If the entry is masked and we don't have the real value yet, fetch it first
    const entry = findEntry(currentEntries, fullPath);
    if (entry?.isMasked && !revealedValues[fullPath.trim()]) {
       const r = await api('GET', `/files/${enc(currentFile.fileName)}/value?key=${enc(fullPath)}`);
       if (!r.success) { toast('Could not load value for editing: ' + r.error, 'error'); return; }
       revealedValues[fullPath.trim()] = r.data;
    }
-
    activeEditorPath = fullPath;
    if (isObj) expandedPaths.add(fullPath);
    renderTree();
 }
 
 function openInlineEditor(slot, fullPath) {
-   // Find the entry's current raw value from the live tree
    const entry = findEntry(currentEntries, fullPath);
    const isObj = entry?.valueType === 'object';
-
    let prefill = '';
    if (isObj && entry?.children) {
       prefill = entriesToJson(entry.children);
    } else if (entry?.isMasked) {
-      // real value was fetched before openInlineEditor was called — use the cache directly
       prefill = revealedValues[fullPath.trim()] ?? '';
    } else {
       const raw = entry?.rawValue ?? '';
-      if (entry?.valueType === 'string' && raw.startsWith('"') && raw.endsWith('"')) {
+      if (raw === 'null' || raw === null || raw === undefined) {
+         prefill = '';   // empty input = user can type a new value; null shown as placeholder
+      } else if ((entry?.valueType === 'string' || entry?.valueType === 'arrayItem')
+         && raw.startsWith('"') && raw.endsWith('"')) {
          prefill = raw.slice(1, -1);
       } else {
          prefill = raw;
       }
    }
-
    const inputId = 'ei-' + pathToId(fullPath);
    const indentPx = 8 + (fullPath.split(':').length - 1) * 20;
+   const isMultiline = prefill.includes('\n') || prefill.length > 80;
    slot.innerHTML = `
-            <div class="inline-editor" style="margin:2px 8px 4px ${indentPx}px">
-              <span class="tree-key monospace" style="font-size:11px;flex-shrink:0;margin-right:4px;color:var(--accent2)">${escHtml(fullPath)}</span>
-              <input class="inline-input" id="${inputId}" value="${escAttr(prefill)}"
-                onkeydown="handleEditKey(event,'${escAttr(fullPath)}')" />
-              <button class="btn btn-primary btn-sm" onclick="submitEdit('${escAttr(fullPath)}')">Save</button>
-              <button class="btn btn-ghost btn-sm" onclick="cancelEdit()">✕</button>
-            </div>`;
+      <div class="inline-editor" style="margin:2px 8px 4px ${indentPx}px;flex-wrap:wrap">
+        <span class="tree-key monospace" style="font-size:11px;flex-shrink:0;margin-right:4px;color:var(--accent2);width:100%;margin-bottom:4px">${escHtml(fullPath)}</span>
+        ${isMultiline
+         ? `<textarea class="inline-input" id="${inputId}" rows="3"
+               style="resize:vertical;width:100%;min-height:60px"
+               onkeydown="handleEditKeyTextarea(event,'${escAttr(fullPath)}')">${escHtml(prefill)}</textarea>`
+         : `<input class="inline-input" id="${inputId}" value="${escAttr(prefill)}"
+               placeholder="${entry?.valueType === 'null' ? 'null' : ''}"
+               onkeydown="handleEditKey(event,'${escAttr(fullPath)}')" />`
+      }
+        <button class="btn btn-primary btn-sm" onclick="submitEdit('${escAttr(fullPath)}')">Save</button>
+        <button class="btn btn-ghost btn-sm"   onclick="cancelEdit()">✕</button>
+      </div>`;
    slot.classList.remove('hidden');
    const inp = document.getElementById(inputId);
    if (inp) {
       inp.focus(); inp.select();
-      // Attach blur handler — save or cancel depending on the toggle
-      inp.addEventListener('blur', e => {
-         // Only act if focus moved outside the inline-editor entirely
+      inp.addEventListener('blur', () => {
+         const capturedValue = inp.value;
          setTimeout(() => {
             const active = document.activeElement;
             const editor = slot.querySelector('.inline-editor');
             if (editor && !editor.contains(active)) {
-               if (autoSaveOnBlur) {
-                  showSaveStatus();
-                  submitEdit(fullPath);
-               }
+               if (autoSaveOnBlur) { showSaveStatus(); submitEditWithValue(fullPath, capturedValue); }
                else cancelEdit();
             }
-         }, 120);   // small delay so Save/Cancel button clicks register first
+         }, 120);
       });
    }
 }
 
 function handleEditKey(e, fullPath) {
-   if (e.key === 'Enter') {
-      showSaveStatus();
-      submitEdit(fullPath);
-   }
+   if (e.key === 'Enter') { showSaveStatus(); submitEdit(fullPath); }
+   if (e.key === 'Escape') cancelEdit();
+}
+
+// For textarea editors: Enter adds a newline (normal), Ctrl+Enter saves.
+function handleEditKeyTextarea(e, fullPath) {
+   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { showSaveStatus(); submitEdit(fullPath); }
    if (e.key === 'Escape') cancelEdit();
 }
 
@@ -393,55 +523,49 @@ async function submitEdit(fullPath) {
    const inputId = 'ei-' + pathToId(fullPath);
    const inp = document.getElementById(inputId);
    if (!inp) return;
+   await submitEditWithValue(fullPath, inp.value);
+}
 
+async function submitEditWithValue(fullPath, rawValue) {
    const entry = findEntry(currentEntries, fullPath);
    const isObj = entry?.valueType === 'object';
-   let jsonValue = inp.value;
-
-   // For non-object string values: wrap in quotes if the raw input is not valid JSON
-   if (!isObj && entry?.valueType === 'string') {
-      try { JSON.parse(jsonValue); }
-      catch { jsonValue = JSON.stringify(jsonValue); }   // treat as plain string
+   let jsonValue = rawValue;
+   // Normalise the value based on its current type.
+   if (!isObj) {
+      if (jsonValue === '' || jsonValue.toLowerCase() === 'null') {
+         jsonValue = 'null';   // explicit null
+      } else if (entry?.valueType === 'string' || entry?.valueType === 'arrayItem') {
+         // If the input is not already valid JSON, treat it as a plain string.
+         try { JSON.parse(jsonValue); } catch { jsonValue = JSON.stringify(jsonValue); }
+      }
    }
-
    const r = await api('PUT', `/files/${enc(currentFile.fileName)}/entries`, { keyPath: fullPath, jsonValue });
-   if (r.success) {
-      toast('Saved ✓', 'success');
-      activeEditorPath = null;
-      await loadEntries();
-   } else {
-      toast(r.error, 'error');
-   }
+   if (r.success) { toast('Saved ✓', 'success'); activeEditorPath = null; await loadEntries(); }
+   else toast(r.error, 'error');
 }
 
-function cancelEdit() {
-   activeEditorPath = null;
-   renderTree();
-}
+function cancelEdit() { activeEditorPath = null; renderTree(); }
 
-// Walk the nested entry tree to find a node by its full colon-path
 function findEntry(entries, fullPath) {
    const parts = fullPath.split(':');
    let current = entries;
    let found = null;
    for (let i = 0; i < parts.length; i++) {
-      found = (current ?? []).find(e => e.key === parts[i]);
+      const part = parts[i];
+      // Array items have numeric keys; match by key string or arrayIndex.
+      found = (current ?? []).find(e => e.key === part || String(e.arrayIndex) === part);
       if (!found) return null;
       current = found.children;
    }
    return found;
 }
 
-// Reconstruct a compact JSON string from a children array (for object pre-fill)
 function entriesToJson(children) {
    if (!children) return '{}';
    const obj = {};
    for (const c of children) {
       if (c.valueType === 'object') obj[c.key] = JSON.parse(entriesToJson(c.children));
-      else {
-         try { obj[c.key] = JSON.parse(c.rawValue ?? 'null'); }
-         catch { obj[c.key] = c.rawValue; }
-      }
+      else { try { obj[c.key] = JSON.parse(c.rawValue ?? 'null'); } catch { obj[c.key] = c.rawValue; } }
    }
    return JSON.stringify(obj, null, 2);
 }
@@ -479,15 +603,166 @@ function confirmDelete(fullPath, e) {
    );
 }
 
-// ── Backup (explicit) ─────────────────────────────────────────────────────
+// ── Backup ────────────────────────────────────────────────────────────────
 async function createBackup() {
    if (!currentFile) { toast('Select a file first', 'warn'); return; }
    const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup`);
-   if (r.success) toast(`Backup created ✓`, 'success');
+   if (r.success) toast('Backup created ✓', 'success');
    else toast(r.error, 'error');
 }
 
-// ── Raw editor ────────────────────────────────────────────────────────────
+// ── Monaco Editor ─────────────────────────────────────────────────────────
+async function initMonaco() {
+   if (_monacoInitPromise) return _monacoInitPromise;
+   _monacoInitPromise = (async () => {
+      let monaco;
+      try { monaco = await window.monacoReady; }
+      catch { _monacoFallback = true; showMonacoFallback(); updateMonacoStatusBadge(false); return; }
+
+      monaco.editor.defineTheme('configui-dark', {
+         base: 'vs-dark', inherit: true,
+         rules: [
+            { token: 'string.key.json', foreground: '7dd3fc' },
+            { token: 'string.value.json', foreground: '4ade80' },
+            { token: 'number', foreground: 'fb923c' },
+            { token: 'keyword.json', foreground: 'c084fc' },
+         ],
+         colors: {
+            'editor.background': '#161b27',
+            'editor.foreground': '#e2e8f0',
+            'editorLineNumber.foreground': '#2a3347',
+            'editorLineNumber.activeForeground': '#8899aa',
+            'editor.lineHighlightBackground': '#1e2535',
+            'editorCursor.foreground': '#38bdf8',
+            'editor.selectionBackground': '#38bdf833',
+            'editorIndentGuide.background1': '#2a3347',
+            'editorWidget.background': '#1e2535',
+            'editorSuggestWidget.background': '#1e2535',
+         }
+      });
+      monaco.editor.defineTheme('configui-light', {
+         base: 'vs', inherit: true,
+         rules: [
+            { token: 'string.key.json', foreground: '0284c7' },
+            { token: 'string.value.json', foreground: '16a34a' },
+            { token: 'number', foreground: 'ea580c' },
+            { token: 'keyword.json', foreground: '7c3aed' },
+         ],
+         colors: {
+            'editor.background': '#ffffff',
+            'editor.foreground': '#1e293b',
+            'editorLineNumber.foreground': '#cbd5e1',
+            'editor.lineHighlightBackground': '#e8edf4',
+            'editorCursor.foreground': '#0284c7',
+            'editor.selectionBackground': '#0284c722',
+         }
+      });
+
+      const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+      _monacoInstance = monaco.editor.create(
+         document.getElementById('monaco-editor-container'),
+         {
+            language: 'json', theme: isDark ? 'configui-dark' : 'configui-light',
+            automaticLayout: true, minimap: { enabled: false },
+            scrollBeyondLastLine: false, fontSize: 13,
+            fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+            lineNumbers: 'on', renderWhitespace: 'selection',
+            bracketPairColorization: { enabled: true }, formatOnPaste: true,
+            tabSize: 2, wordWrap: 'off',
+            quickSuggestions: { other: false, comments: false, strings: false },
+            parameterHints: { enabled: false }, suggestOnTriggerCharacters: false,
+            readOnly: window.READONLY,
+         }
+      );
+      _monacoInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRaw());
+      window.__monacoNs = monaco;
+
+      // Allow // and /* */ comments in the JSON language service so the
+      // editor does not show red squiggles on valid JSONC files.
+      // This preserves full JSON syntax highlighting and token colouring
+      // while suppressing the "Comments are not permitted" diagnostic.
+      monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+         validate: true,
+         allowComments: true,
+         trailingCommas: 'ignore',
+      });
+
+      updateMonacoStatusBadge(true);
+   })();
+   return _monacoInitPromise;
+}
+
+async function setRawEditorContent(content) {
+   await initMonaco();
+   if (_monacoFallback) { document.getElementById('raw-editor-ta').value = content; return; }
+   const monaco = window.__monacoNs;
+   if (!_monacoModels[currentFile.fileName]) {
+      const uri = monaco.Uri.parse(`file:///${currentFile.fileName}`);
+      const model = monaco.editor.createModel(content, 'json', uri);
+      _monacoModels[currentFile.fileName] = model;
+   } else {
+      const existing = _monacoModels[currentFile.fileName];
+      if (existing.getValue() !== content) existing.setValue(content);
+   }
+   _monacoInstance.setModel(_monacoModels[currentFile.fileName]);
+   syncMonacoTheme();
+}
+
+function getRawEditorContent() {
+   return _monacoFallback
+      ? document.getElementById('raw-editor-ta').value
+      : (_monacoInstance?.getValue() ?? '');
+}
+
+function showMonacoFallback() {
+   document.getElementById('monaco-editor-container').classList.add('hidden');
+   document.getElementById('raw-editor-ta').classList.remove('hidden');
+   toast('Monaco Editor could not load from CDN — using basic editor.', 'warn', 6000);
+}
+
+function updateMonacoStatusBadge(loaded) {
+   const badge = document.getElementById('monaco-status');
+   if (!badge) return;
+   if (loaded) {
+      badge.textContent = '⚡ Monaco';
+      badge.title = 'Monaco Editor — VS Code engine';
+      badge.classList.add('monaco-loaded');
+   } else {
+      badge.textContent = '⚠ Basic editor';
+      badge.title = 'Monaco could not load from CDN';
+      badge.classList.add('monaco-fallback');
+   }
+}
+
+function syncMonacoTheme() {
+   if (!_monacoInstance || _monacoFallback || !window.__monacoNs) return;
+   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+   window.__monacoNs.editor.setTheme(isDark ? 'configui-dark' : 'configui-light');
+}
+
+// ── Raw editor actions ────────────────────────────────────────────────────
+function formatRaw() {
+   if (_monacoFallback) {
+      const ta = document.getElementById('raw-editor-ta');
+      try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); }
+      catch { toast('Invalid JSON — cannot format', 'error'); }
+      return;
+   }
+   _monacoInstance?.getAction('editor.action.formatDocument')?.run();
+}
+
+async function saveRaw() {
+   const content = getRawEditorContent();
+   // Validation is handled server-side by JsonCommentPreservingWriter.Validate
+   // (Newtonsoft.Json) which correctly accepts // and /* */ comments.
+   // The browser-native JSON.parse is intentionally not used here because it
+   // rejects comments and would block saving valid JSONC files.
+   const r = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
+   if (r.success) toast('Saved ✓', 'success');
+   else toast(r.error, 'error');
+}
+
+// ── Editor mode switching ─────────────────────────────────────────────────
 function setEditorMode(mode) {
    editorMode = mode;
    activeEditorPath = null;
@@ -498,51 +773,67 @@ function setEditorMode(mode) {
    if (currentFile) loadEntries();
 }
 
-function formatRaw() {
-   const ta = document.getElementById('raw-editor-ta');
-   try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); }
-   catch { toast('Invalid JSON — cannot format', 'error'); }
-}
-
-async function saveRaw() {
-   const content = document.getElementById('raw-editor-ta').value;
-   try { JSON.parse(content); } catch { toast('Invalid JSON — fix errors before saving', 'error'); return; }
-   const r = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
-   if (r.success) toast('Saved ✓', 'success');
-   else toast(r.error, 'error');
-}
-
 // ── View switching ────────────────────────────────────────────────────────
+// Fix #2 — setView() never touches toolbar visibility.
+// The toolbar is owned entirely by selectFile() (show) and _showNoFileState() (hide).
 function setView(v) {
    currentView = v;
-   ['editor', 'swap', 'diff'].forEach(id => {
+   // All known view panels — including the new 'guide' panel
+   ['editor', 'swap', 'diff', 'guide'].forEach(id => {
       document.getElementById('view-' + id).classList.toggle('hidden', id !== v);
-      document.getElementById('nav-' + id).classList.toggle('active', id === v);
+      const navEl = document.getElementById('nav-' + id);
+      if (navEl) navEl.classList.toggle('active', id === v);
    });
-   document.getElementById('editor-toolbar-row1').classList.toggle('hidden', v !== 'editor');
-   document.getElementById('editor-toolbar-row2').classList.toggle('hidden', v !== 'editor');
-   if (v === 'editor') {
-      document.getElementById('toolbar-title').innerHTML = currentFile
-         ? `<strong>${escHtml(currentFile.fileName)}</strong>` : 'Select a file';
-   } else if (v === 'swap') {
-      document.getElementById('toolbar-title').innerHTML = '<strong>Move / Copy Keys</strong>';
-   } else {
-      document.getElementById('toolbar-title').innerHTML = '<strong>Compare Files</strong>';
+
+   // When switching TO the editor with no file selected: hide toolbar & show landing state
+   if (v === 'editor' && !currentFile) {
+      _showNoFileState();
+   }
+
+   // When switching away from editor: hide both toolbar rows
+   // (they re-appear when selectFile() is called)
+   if (v !== 'editor') {
+      document.getElementById('editor-toolbar-row1').classList.add('hidden');
+      document.getElementById('editor-toolbar-row2').classList.add('hidden');
+   } else if (currentFile) {
+      // Switching back to editor and a file is already selected — restore toolbar
+      document.getElementById('editor-toolbar-row1').classList.remove('hidden');
+      document.getElementById('editor-toolbar-row2').classList.remove('hidden');
+   }
+
+   if (v == 'swap') {
+      document.getElementById('swap-keys').innerHTML = '';
+      document.getElementById('swap-source').selectedIndex = 0;
+      document.getElementById('swap-target').selectedIndex = 0;
+      document.getElementById('swap-overwrite').checked = false;
+   }
+   else if (v == 'diff') {
+      document.getElementById('diff-result').innerHTML = '';
+      document.getElementById('diff-source').selectedIndex = 0;
+      document.getElementById('diff-target').selectedIndex = 0;
    }
 }
 
 // ── Swap ──────────────────────────────────────────────────────────────────
-function populateSwapDiffSelects() {
-   ['swap-source', 'swap-target', 'diff-source', 'diff-target'].forEach(id => {
 
+// Populates only the swap <select> elements.
+// Called once on first load. After executeSwap() we call refreshSwapKeysOnly()
+// instead so the source/target/operation selection is preserved.
+function populateSwapSelects() {
+   ['swap-source', 'swap-target'].forEach(id => {
       document.getElementById(id).innerHTML =
          `<option disabled selected> - SELECT FILE - </option>` +
          files.map(f => `<option value="${escAttr(f.fileName)}">${escHtml(f.fileName)}</option>`).join('');
    });
-   /*if (files.length > 1) {
-       document.getElementById('swap-target').selectedIndex = 1;
-       document.getElementById('diff-target').selectedIndex = 1;
-   }*/
+}
+
+// Populates only the diff <select> elements (always safe to replace).
+function populateDiffSelects() {
+   ['diff-source', 'diff-target'].forEach(id => {
+      document.getElementById(id).innerHTML =
+         `<option disabled selected> - SELECT FILE - </option>` +
+         files.map(f => `<option value="${escAttr(f.fileName)}">${escHtml(f.fileName)}</option>`).join('');
+   });
 }
 
 async function loadSwapKeys() {
@@ -554,9 +845,9 @@ async function loadSwapKeys() {
    if (!flat.length) { container.innerHTML = '<span class="text-muted">No keys found.</span>'; return; }
    container.innerHTML = flat.map(k =>
       `<label class="key-checkbox">
-              <input type="checkbox" value="${escAttr(k)}" />
-              <span class="key-checkbox-label">${escHtml(k)}</span>
-            </label>`).join('');
+         <input type="checkbox" value="${escAttr(k)}" />
+         <span class="key-checkbox-label">${escHtml(k)}</span>
+       </label>`).join('');
 }
 
 function flattenEntries(entries, prefix) {
@@ -570,20 +861,54 @@ function flattenEntries(entries, prefix) {
 }
 
 async function executeSwap() {
-   const source = document.getElementById('swap-source').value;
-   const target = document.getElementById('swap-target').value;
-   const op = document.getElementById('swap-op').value;
+   const sourceEl = document.getElementById('swap-source');
+   const targetEl = document.getElementById('swap-target');
+   const opEl = document.getElementById('swap-op');
+   const source = sourceEl.value;
+   const target = targetEl.value;
+   const op = opEl.value;
    const overwrite = document.getElementById('swap-overwrite').checked;
    const keys = [...document.querySelectorAll('#swap-keys input:checked')].map(i => i.value);
+
    if (!keys.length) { toast('Select at least one key', 'warn'); return; }
    if (source === target) { toast('Source and target must be different', 'warn'); return; }
+
    showModal(
       `${op} ${keys.length} key(s)?`,
       `<strong>${op}</strong> selected keys from <strong>${escHtml(source)}</strong> to <strong>${escHtml(target)}</strong>?`,
       async () => {
          const r = await api('POST', '/swap', { sourceFile: source, targetFile: target, keys, operation: op, overwriteExisting: overwrite });
-         if (r.success) { toast(`${op} complete ✓`, 'success'); await loadFileList(); }
-         else toast(r.error, 'error');
+         if (r.success) {
+            toast(`${op} complete ✓`, 'success');
+
+            // Fix #1 — preserve form state after a successful swap.
+            // We need to update the internal file list (for diff selects etc.)
+            // but we must NOT re-render the swap <select> elements, which would
+            // wipe the user's source/target choice and clear the key list.
+            const savedSource = source;
+            const savedTarget = target;
+            const savedOp = op;
+
+            // Refresh file metadata quietly
+            const filesR = await api('GET', '/files');
+            if (filesR.success) {
+               files = filesR.data;
+               renderFileList();
+               populateDiffSelects();   // safe — diff selects are separate elements
+               updateWelcomeStats();
+            }
+
+            // Restore the swap form selections
+            sourceEl.value = savedSource;
+            targetEl.value = savedTarget;
+            opEl.value = savedOp;
+
+            // Reload the key list for the source file so moved keys are gone
+            // (for Move operations) or still shown (for Copy).
+            await loadSwapKeys();
+         } else {
+            toast(r.error, 'error');
+         }
       }
    );
 }
@@ -607,23 +932,55 @@ async function runDiff() {
       : '<div class="text-muted" style="padding:16px">Files are identical.</div>';
 }
 
+
+// ── Array operations ──────────────────────────────────────────────────────
+
+function promptAppendArrayItem(arrayPath, e) {
+   e.stopPropagation();
+   showModal(
+      `Append item to array`,
+      `<div class="form-field" style="width:100%">
+         <span class="field-label">Value (string, number, true/false, null, or JSON object/array)</span>
+         <textarea id="modal-array-value" class="form-input" rows="3"
+            style="width:100%;resize:vertical;font-family:var(--font);font-size:12px"
+            placeholder='e.g.  "https://example.com"  or  42  or  {"key":"val"}'></textarea>
+       </div>`,
+      async () => {
+         const val = document.getElementById('modal-array-value')?.value?.trim() ?? '';
+         const r = await api('POST', `/files/${enc(currentFile.fileName)}/array-append`,
+            { keyPath: arrayPath, jsonValue: val });
+         if (r.success) {
+            toast('Item appended ✓', 'success');
+            expandedPaths.add(arrayPath);   // keep expanded after append
+            await loadEntries();
+         } else toast(r.error, 'error');
+      }
+   );
+   // Focus the textarea after the modal renders
+   setTimeout(() => document.getElementById('modal-array-value')?.focus(), 50);
+}
+
+function confirmDeleteArrayItem(arrayPath, index, e) {
+   e.stopPropagation();
+   showModal(
+      'Remove array item?',
+      `Remove item at index <strong>${index}</strong> from <strong class="monospace">${escHtml(arrayPath)}</strong>?`,
+      async () => {
+         const r = await api('DELETE',
+            `/files/${enc(currentFile.fileName)}/array-item?key=${enc(arrayPath)}&index=${index}`);
+         if (r.success) { toast('Item removed ✓', 'success'); await loadEntries(); }
+         else toast(r.error, 'error');
+      }
+   );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 function showEditorLoading(show) {
-   const wrap = document.getElementById('editor-loading');
-   const empty = document.getElementById('editor-empty-state');
-   const spinner = document.getElementById('editor-spinner');
-   // The outer wrapper is always visible until a file is loaded; once hidden it stays hidden
-   if (show) {
-      wrap.style.display = 'flex';
-      empty.style.display = 'none';
-      spinner.style.display = 'flex';
-   } else {
-      wrap.style.display = 'none';
-      empty.style.display = 'flex';   // restore for next time (doesn't matter, wrap is hidden)
-      spinner.style.display = 'none';
-   }
+   document.getElementById('editor-loading').style.display = show ? 'flex' : 'none';
    document.getElementById('tree-view').classList.toggle('hidden', show || editorMode !== 'tree');
    document.getElementById('raw-view').classList.toggle('hidden', show || editorMode !== 'raw');
+   // While loading, hide the "no file" state too
+   if (show) document.getElementById('editor-no-file').classList.add('hidden');
 }
 
 function toggleTheme() {
@@ -631,6 +988,7 @@ function toggleTheme() {
    const dark = html.getAttribute('data-theme') === 'dark';
    html.setAttribute('data-theme', dark ? 'light' : 'dark');
    document.querySelector('[onclick="toggleTheme()"]').textContent = dark ? '🌕' : '🌙';
+   syncMonacoTheme();
 }
 
 function toast(msg, type = 'success', dur = 3200) {

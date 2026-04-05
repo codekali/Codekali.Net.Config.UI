@@ -4,89 +4,135 @@ using Codekali.Net.Config.UI.Models;
 using Codekali.Net.Config.UI.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Codekali.Net.Config.UI.Extensions;
 
 /// <summary>
-/// Extension methods for registering and activating the Codekali Config UI
-/// in an ASP.NET Core application.
+/// Extension methods for registering Codekali.Net.Config.UI services and middleware.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the Config UI services in the DI container.
-    /// Call this from <c>builder.Services.AddConfigUI()</c> before <c>app.UseConfigUI()</c>.
-    /// If you omit this call, <see cref="UseConfigUI(IApplicationBuilder, Action{ConfigUIOptions}?)"/>
-    /// will register services with default options automatically.
+    /// Registers all Config UI services with the dependency injection container.
     /// </summary>
-    /// <param name="services">The application service collection.</param>
-    /// <param name="configure">Optional delegate to configure <see cref="ConfigUIOptions"/>.</param>
+    /// <remarks>
+    /// Three usage patterns:
+    /// <code>
+    /// // 1. Zero-config — open in Development, no token:
+    /// builder.Services.AddConfigUI();
+    ///
+    /// // 2. Explicit token:
+    /// builder.Services.AddConfigUI(o => o.AccessToken = "my-secret");
+    ///
+    /// // 3. Auto-generate token on first run, persist to launchSettings.json:
+    /// builder.Services.AddConfigUI(o => o.EnableAutoToken = true);
+    /// </code>
+    /// </remarks>
     public static IServiceCollection AddConfigUI(
         this IServiceCollection services,
         Action<ConfigUIOptions>? configure = null)
     {
         var options = new ConfigUIOptions();
         configure?.Invoke(options);
-
-        // Register options as a singleton so all services share the same instance
         services.AddSingleton(options);
 
-        // Repository — file system abstraction (internal, not exposed)
         services.AddSingleton<IConfigFileRepository, ConfigFileRepository>();
-
-        // Core services
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IAppSettingsService, AppSettingsService>();
         services.AddSingleton<IEnvironmentSwapService, EnvironmentSwapService>();
         services.AddSingleton<ConfigUIApiHandler>();
         services.AddSingleton<ConfigUIStaticHandler>();
-
+        
         return services;
     }
 
-    /// <summary>
-    /// Adds the Config UI middleware to the ASP.NET Core pipeline.
-    /// Accessible at <c>/config-ui</c> by default (configurable via <see cref="ConfigUIOptions.PathPrefix"/>).
-    /// </summary>
-    /// <remarks>
-    /// If <see cref="AddConfigUI"/> was not called during service registration, this method
-    /// will call it internally with the supplied options.
-    /// </remarks>
-    /// <param name="app">The application builder.</param>
-    /// <param name="configure">Optional delegate to configure <see cref="ConfigUIOptions"/>.</param>
-    public static IApplicationBuilder UseConfigUI(
-        this IApplicationBuilder app,
-        Action<ConfigUIOptions>? configure = null)
+    /// <summary>Adds the Config UI middleware to the ASP.NET Core request pipeline.</summary>
+    public static IApplicationBuilder UseConfigUI(this IApplicationBuilder app)
     {
-        // Ensure services are registered even if AddConfigUI was skipped
-        EnsureServicesRegistered(app, configure);
-
         var options = app.ApplicationServices.GetRequiredService<ConfigUIOptions>();
+        
+        if (options.EnableAutoToken)
+            ResolveAutoToken(app, options);
 
-        app.UseMiddleware<ConfigUIMiddleware>(options);
-
+        app.UseMiddleware<ConfigUIMiddleware>();
         return app;
     }
 
-    // ── private helpers ──────────────────────────────────────────────────────
+    // ── Auto-token resolution (only called when EnableAutoToken = true) ───────
 
-    private static void EnsureServicesRegistered(
-        IApplicationBuilder app, Action<ConfigUIOptions>? configure)
+    /// <summary>
+    /// Resolves the access token in priority order:
+    /// <list type="number">
+    ///   <item>Explicit <see cref="ConfigUIOptions.AccessToken"/> already set — used as-is.</item>
+    ///   <item><c>CONFIGUI_ACCESS_TOKEN</c> environment variable — covers production / CI and
+    ///         subsequent local runs after the token was written to <c>launchSettings.json</c>.</item>
+    ///   <item>Auto-generate a new token and persist it to <c>Properties/launchSettings.json</c>
+    ///         (Development only, first run only).</item>
+    /// </list>
+    /// This method is intentionally only reachable when
+    /// <see cref="ConfigUIOptions.EnableAutoToken"/> is <c>true</c>.
+    /// </summary>
+    private static void ResolveAutoToken(IApplicationBuilder app, ConfigUIOptions options)
     {
-        // If the options singleton is already registered, honour it
-        var existing = app.ApplicationServices.GetService<ConfigUIOptions>();
-        if (existing is not null)
+        var logger = app.ApplicationServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger(nameof(ServiceCollectionExtensions));
+
+        // Priority 1 — explicit token already set in code; nothing to do.
+        if (!string.IsNullOrWhiteSpace(options.AccessToken))
         {
-            // Allow the configure delegate to mutate the existing options
-            configure?.Invoke(existing);
+            logger.LogDebug("[ConfigUI] AccessToken set explicitly — auto-token resolution skipped.");
             return;
         }
 
-        // Services were not registered — this path should not normally be hit
-        // because DI container is sealed at this point. Log a warning.
-        // In practice users should call AddConfigUI() in their Program.cs.
-        throw new InvalidOperationException(
-            "Codekali Config UI services have not been registered. " +
-            "Call builder.Services.AddConfigUI() before app.UseConfigUI().");
+        // Priority 2 — environment variable.
+        // On the second and subsequent runs the token that was written to
+        // launchSettings.json on the first run will be present here.
+        var envToken = Environment.GetEnvironmentVariable(
+            LaunchSettingsTokenWriter.EnvironmentVariableName);
+
+        if (!string.IsNullOrWhiteSpace(envToken))
+        {
+            options.AccessToken = envToken;
+            logger.LogInformation(
+                "[ConfigUI] AccessToken loaded from environment variable '{EnvVar}'.",
+                LaunchSettingsTokenWriter.EnvironmentVariableName);
+            return;
+        }
+
+        // Priority 3 — generate a new token (first run, Development only).
+        var env = app.ApplicationServices.GetService<IHostEnvironment>();
+        if (env is null || !env.IsDevelopment())
+        {
+            logger.LogWarning(
+                "[ConfigUI] EnableAutoToken is true but the current environment is '{Env}'. " +
+                "Auto-generation is only supported in Development. " +
+                "Supply '{EnvVar}' as a real environment variable or set options.AccessToken explicitly.",
+                env?.EnvironmentName ?? "unknown",
+                LaunchSettingsTokenWriter.EnvironmentVariableName);
+            return;
+        }
+
+        var writerLogger = app.ApplicationServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger<LaunchSettingsTokenWriter>();
+
+        var writer = new LaunchSettingsTokenWriter(env.ContentRootPath, writerLogger);
+
+        var token = writer.EnsureTokenAsync(CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            options.AccessToken = token;
+            logger.LogInformation(
+                "[ConfigUI] Generated access token: '{Token}'. " +
+                "Saved to Properties/launchSettings.json under '{EnvVar}'. " +
+                "Append ?token={Token} to the URL or send the X-Config-Token header.",
+                token, LaunchSettingsTokenWriter.EnvironmentVariableName, token);
+        }
     }
 }

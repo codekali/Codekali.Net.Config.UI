@@ -36,14 +36,38 @@ namespace Codekali.Net.Config.UI.Middleware
         public static string? ReadEmbeddedResource(string subPath)
         {
             var assembly = typeof(ConfigUIStaticHandler).Assembly;
-            var suffix = subPath.Replace('/', '.').Replace('\\', '.');
+
+            // In Release builds the minified variants are embedded alongside the
+            // originals. Prefer them by inserting ".min" before the extension.
+            var minPath = ToMinPath(subPath);
+            var suffix = (minPath ?? subPath).Replace('/', '.').Replace('\\', '.');
+
             var resourceName = assembly
                 .GetManifestResourceNames()
                 .FirstOrDefault(n => n.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+
+            // Fall back to unminified if the .min variant was not embedded
+            // (e.g. Debug build or minification was skipped).
+            if (resourceName is null && minPath is not null)
+            {
+                suffix = subPath.Replace('/', '.').Replace('\\', '.');
+                resourceName = assembly
+                    .GetManifestResourceNames()
+                    .FirstOrDefault(n => n.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+            }
+
             if (resourceName is null) return null;
+
             using var stream = assembly.GetManifestResourceStream(resourceName)!;
             using var reader = new StreamReader(stream, Encoding.UTF8);
             return reader.ReadToEnd();
+        }
+
+        private static string? ToMinPath(string subPath)
+        {
+            var ext = Path.GetExtension(subPath);
+            if (ext is not ".css" and not ".js") return null;
+            return subPath[..^ext.Length] + ".min" + ext;
         }
     }
 }
