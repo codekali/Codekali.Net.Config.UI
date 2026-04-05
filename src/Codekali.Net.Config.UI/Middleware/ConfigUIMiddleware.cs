@@ -1,8 +1,10 @@
 using Codekali.Net.Config.UI.Models;
+#if NET8_0_OR_GREATER
+using Microsoft.AspNetCore.Authorization;
+#endif
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace Codekali.Net.Config.UI.Middleware;
 
@@ -42,7 +44,7 @@ internal sealed class ConfigUIMiddleware(
         // OR by its file extension (.css / .js / .ico / .png / .svg).
         // The HTML shell (/config-ui or /config-ui/) is intentionally excluded
         // here so that it remains behind the environment + token guards.
-        if (IsStaticAsset(subPath))
+        if (ConfigUIMiddlewareHelpers.IsStaticAsset(subPath))
         {
             await ConfigUIStaticHandler.ServeEmbeddedResourceAsync(context, subPath)
                 .ConfigureAwait(false);
@@ -80,6 +82,36 @@ internal sealed class ConfigUIMiddleware(
             return;
         }
 
+        // ── Authorization policy guard ─────────────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(options.AuthorizationPolicy))
+        {
+        #if NET8_0_OR_GREATER
+            var authService = context.RequestServices.GetService<IAuthorizationService>();
+            if (authService is null)
+            {
+                context.Response.StatusCode = 500;
+                await context.Response.WriteAsync(
+                    "AuthorizationPolicy is configured but IAuthorizationService is not registered. " +
+                    "Call builder.Services.AddAuthorization() in Program.cs.",
+                    context.RequestAborted).ConfigureAwait(false);
+                return;
+            }
+
+            var authResult = await authService
+                .AuthorizeAsync(context.User, options.AuthorizationPolicy)
+                .ConfigureAwait(false);
+
+            if (!authResult.Succeeded)
+            {
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync(
+                    $"Unauthorized — authorization policy '{options.AuthorizationPolicy}' was not satisfied.",
+                    context.RequestAborted).ConfigureAwait(false);
+                return;
+            }
+        #endif
+        }
+
         // ── Route ──────────────────────────────────────────────────────────
         await RouteAsync(context, subPath).ConfigureAwait(false);
     }
@@ -98,22 +130,16 @@ internal sealed class ConfigUIMiddleware(
             return;
         }
 
+        // ── Hot-reload poll endpoint (/config-ui/api/hot-reload-status) ──
+        if (subPath.Equals("api/hot-reload-status", StringComparison.OrdinalIgnoreCase)
+            && method == "GET")
+        {
+            await configUIApiHandler.HandleApiAsync(ctx, "hot-reload-status", method)
+                .ConfigureAwait(false);
+            return;
+        }
+
         // ── Fallback: serve the SPA shell (index.html) ──
         await configUIStaticHandler.ServeIndexHtmlAsync(ctx).ConfigureAwait(false);
-    }
-
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Returns true when <paramref name="subPath"/> identifies a static asset
-    /// that must be served without authentication.
-    /// </summary>
-    private static bool IsStaticAsset(string subPath)
-    {
-        if (subPath.StartsWith("static/", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var ext = Path.GetExtension(subPath).ToLowerInvariant();
-        return ext is ".css" or ".js" or ".ico" or ".png" or ".svg";
     }
 }

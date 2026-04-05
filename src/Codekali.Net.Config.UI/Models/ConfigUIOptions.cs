@@ -34,8 +34,7 @@ public sealed class ConfigUIOptions
     public string? AccessToken { get; set; }
 
     /// <summary>
-    /// When <c>true</c>, <see cref="Extensions.ServiceCollectionExtensions.UseConfigUI(Microsoft.AspNetCore.Builder.IApplicationBuilder)"/>
-    /// will automatically generate a cryptographically random access token on the
+    /// When <c>true</c>, will automatically generate a cryptographically random access token on the
     /// first startup and persist it in <c>Properties/launchSettings.json</c> under
     /// the <c>CONFIGUI_ACCESS_TOKEN</c> environment variable key.
     /// <para>
@@ -57,6 +56,35 @@ public sealed class ConfigUIOptions
     /// </code>
     /// </example>
     public bool EnableAutoToken { get; set; } = false;
+
+    /// <summary>
+    /// Optional ASP.NET Core authorization policy name to enforce on the Config UI.
+    /// When set, <c>IAuthorizationService.AuthorizeAsync</c> is called with this policy
+    /// before serving any response. Works with any identity provider — ASP.NET Core
+    /// Identity, Azure AD, Auth0, cookie schemes, or custom policies.
+    /// The existing <see cref="AccessToken"/> mechanism is fully preserved;
+    /// both can be used simultaneously.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// // Register the policy:
+    /// builder.Services.AddAuthorization(o =>
+    ///     o.AddPolicy("ConfigUIAccess", p => p.RequireRole("Admin")));
+    ///
+    /// // Apply it to the UI:
+    /// builder.Services.AddConfigUI(options =>
+    ///     options.AuthorizationPolicy = "ConfigUIAccess");
+    /// </code>
+    /// </example>
+    public string? AuthorizationPolicy { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, a dismissible banner is shown in the UI when an appsettings
+    /// file is modified on disk by an external process. The tree view optionally
+    /// reloads automatically.
+    /// Defaults to <c>true</c>.
+    /// </summary>
+    public bool EnableHotReloadDetection { get; set; } = true;
 
     /// <summary>
     /// The absolute path to the directory that contains the appsettings files.

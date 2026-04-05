@@ -44,6 +44,10 @@ async function loadFileList() {
    const r = await api('GET', '/files');
    if (!r.success) { toast('Failed to load files: ' + r.error, 'error'); return; }
    files = r.data;
+
+   _lastKnownTimestamps = Object.fromEntries(files.map(f => [f.fileName, new Date(f.lastModified).getTime()]));
+   startHotReloadPolling();
+
    renderFileList();
    // Fix #1 — repopulate only the diff selects on reload; the swap selects are
    // populated separately so that a running swap operation is not disturbed.
@@ -55,6 +59,78 @@ async function loadFileList() {
       _swapSelectsPopulated = true;
    }
    updateWelcomeStats();
+}
+
+// ── Hot reload detection ──────────────────────────────────────────────────
+// Polls the server every 3s for file modification timestamps.
+// Shows a dismissible banner when an external change is detected.
+
+let _lastKnownTimestamps = {};
+let _hotReloadInterval = null;
+let _hotReloadDismissed = false;
+
+function startHotReloadPolling() {
+   if (_hotReloadInterval) return;
+   _hotReloadInterval = setInterval(checkHotReload, 3000);
+}
+
+function stopHotReloadPolling() {
+   clearInterval(_hotReloadInterval);
+   _hotReloadInterval = null;
+}
+
+async function checkHotReload() {
+   if (!currentFile) return;
+   try {
+      const r = await api('GET', '/hot-reload-status');
+      if (!r.success) return;
+
+      const changed = Object.entries(r.data).filter(([name, ts]) =>
+         _lastKnownTimestamps[name] !== undefined &&
+         _lastKnownTimestamps[name] !== ts
+      ).map(([name]) => name);
+
+      // Update baseline
+      _lastKnownTimestamps = { ...r.data };
+
+      if (changed.length === 0) return;
+
+      // Only show banner if we haven't already shown one for this change
+      if (!_hotReloadDismissed)
+         showHotReloadBanner(changed);
+
+      // If the changed file is the one currently open, auto-reload tree
+      if (changed.includes(currentFile?.fileName))
+         await loadEntries();
+
+   } catch { /* network blip — ignore */ }
+}
+
+function showHotReloadBanner(changedFiles) {
+   // Remove any existing banner first
+   document.getElementById('hot-reload-banner')?.remove();
+
+   const banner = document.createElement('div');
+   banner.id = 'hot-reload-banner';
+   banner.className = 'hot-reload-banner';
+   banner.innerHTML = `
+      <span>🔄 <strong>${changedFiles.join(', ')}</strong> was modified externally and has been reloaded.</span>
+      <button class="btn btn-ghost btn-sm" onclick="dismissHotReloadBanner()" style="margin-left:auto">✕ Dismiss</button>
+   `;
+
+   // Insert above the tree/raw view, below the toolbar
+   const panel = document.getElementById('view-editor');
+   if (panel) panel.insertAdjacentElement('afterbegin', banner);
+
+   // Auto-dismiss after 8s
+   setTimeout(dismissHotReloadBanner, 8000);
+}
+
+function dismissHotReloadBanner() {
+   document.getElementById('hot-reload-banner')?.remove();
+   _hotReloadDismissed = true;
+   // Reset dismissed flag after 30s so next external change shows again
+   setTimeout(() => { _hotReloadDismissed = false; }, 30000);
 }
 
 // Tracks whether the swap <select> elements have been populated at least once.

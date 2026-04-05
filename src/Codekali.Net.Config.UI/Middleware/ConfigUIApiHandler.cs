@@ -54,6 +54,9 @@ namespace Codekali.Net.Config.UI.Middleware
 
         public async Task HandleApiAsync(HttpContext ctx, string apiPath, string method)
         {
+            if (apiPath.Equals("hot-reload-status", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleHotReloadStatusAsync(ctx).ConfigureAwait(false); return; }
+
             if (apiPath.Equals("files", StringComparison.OrdinalIgnoreCase) && method == "GET")
             { await HandleGetFilesAsync(ctx).ConfigureAwait(false); return; }
 
@@ -116,6 +119,23 @@ namespace Codekali.Net.Config.UI.Middleware
                 .Split(',', StringSplitOptions.RemoveEmptyEntries);
             var result = await _envSwap.FindConflictsAsync(target, keys, ctx.RequestAborted).ConfigureAwait(false);
             await RespondAsync(ctx, result).ConfigureAwait(false);
+        }
+
+        private async Task HandleHotReloadStatusAsync(HttpContext ctx)
+        {
+            var result = await _appSettings.GetAllFilesAsync(ctx.RequestAborted).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            { await RespondAsync(ctx, result).ConfigureAwait(false); return; }
+
+            // Return last-modified timestamps keyed by fileName so the JS
+            // can compare against what it last saw and detect external changes.
+            var timestamps = result.Value!.ToDictionary(
+                f => f.FileName,
+                f => f.LastModified.ToUnixTimeMilliseconds());
+
+            ctx.Response.StatusCode = StatusCodes.Status200OK;
+            await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
+                new { success = true, data = timestamps }).ConfigureAwait(false);
         }
 
         // ── File-scoped handlers ──────────────────────────────────────────────

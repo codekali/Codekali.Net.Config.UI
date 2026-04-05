@@ -44,31 +44,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnvironmentSwapService, EnvironmentSwapService>();
         services.AddSingleton<ConfigUIApiHandler>();
         services.AddSingleton<ConfigUIStaticHandler>();
-
+        
         return services;
     }
 
     /// <summary>Adds the Config UI middleware to the ASP.NET Core request pipeline.</summary>
     public static IApplicationBuilder UseConfigUI(this IApplicationBuilder app)
     {
-        // Token resolution is only attempted when the developer has opted in.
-        // A plain UseConfigUI() call leaves AccessToken null → no token required.
         var options = app.ApplicationServices.GetRequiredService<ConfigUIOptions>();
-        if (options.EnableAutoToken)
-            ResolveAutoToken(app, options);
-
-        app.UseMiddleware<ConfigUIMiddleware>();
-        return app;
-    }
-
-    /// <summary>Adds the Config UI middleware with inline option overrides.</summary>
-    public static IApplicationBuilder UseConfigUI(
-        this IApplicationBuilder app,
-        Action<ConfigUIOptions> configure)
-    {
-        var options = app.ApplicationServices.GetRequiredService<ConfigUIOptions>();
-        configure(options);
-
+        
         if (options.EnableAutoToken)
             ResolveAutoToken(app, options);
 

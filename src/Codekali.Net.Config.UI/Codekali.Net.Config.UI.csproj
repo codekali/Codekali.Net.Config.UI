@@ -11,7 +11,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.1.1</Version>
+    <Version>1.1.5</Version>
     <Authors>Codekali</Authors>
     <Company>Codekali</Company>
     <Product>Codekali.Net.Config.UI</Product>
@@ -107,6 +107,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+    <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="2.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />

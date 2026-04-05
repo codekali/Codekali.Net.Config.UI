@@ -43,6 +43,19 @@ namespace Codekali.Net.Config.UI.Middleware
                 .ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Returns true when <paramref name="subPath"/> identifies a static asset
+        /// that must be served without authentication.
+        /// </summary>
+        public static bool IsStaticAsset(string subPath)
+        {
+            if (subPath.StartsWith("static/", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var ext = Path.GetExtension(subPath).ToLowerInvariant();
+            return ext is ".css" or ".js" or ".ico" or ".png" or ".svg";
+        }
+
         public static string GetContentType(string path)
         {
             return Path.GetExtension(path).ToLowerInvariant() switch

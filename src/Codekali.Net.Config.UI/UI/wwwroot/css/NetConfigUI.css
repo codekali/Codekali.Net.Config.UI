@@ -1290,3 +1290,17 @@ header {
 #editor-loading {
     flex: 1;
 }
+
+/* ── Hot reload banner ── */
+.hot-reload-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--bg3);
+    border-bottom: 2px solid var(--accent);
+    font-size: 13px;
+    color: var(--text);
+    flex-shrink: 0;
+    animation: slideIn .2s ease;
+}
