@@ -28,8 +28,8 @@
 	  - Auto-generated access token persisted to launchSettings.json (opt-in)
 	  - CSS and JS minification on Release builds
 	 </PackageReleaseNotes>
-    <PackageTags>appsettings;configuration;ui;blazor;devtools;dotnet</PackageTags>
-    <PackageProjectUrl>https://github.com/Codekali/Codekali.Net.Config.UI</PackageProjectUrl>
+    <PackageTags>appsettings;configuration;ui;devtools;dotnet;middleware;json;editor</PackageTags>
+    <PackageProjectUrl>https://codekali.github.io/Codekali.NET.Config.UI/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Codekali/Codekali.Net.Config.UI</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
 	 <PackageIcon>icon.png</PackageIcon>
@@ -42,7 +42,7 @@
   </PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="NUglify" Version="1.21.0" />
+		<PackageReference Include="NUglify" Version="1.21.0" PrivateAssets="all"/>
 	</ItemGroup>
 
 	<UsingTask TaskName="MinifyCss"
@@ -134,7 +134,7 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="System.Text.Json" Version="10.0.5" />
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
   </ItemGroup>
 
 </Project>
