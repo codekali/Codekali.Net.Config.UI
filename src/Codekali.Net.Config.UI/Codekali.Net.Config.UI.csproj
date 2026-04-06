@@ -112,6 +112,7 @@
 	</ItemGroup>
 	<ItemGroup>
 		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+		<None Include="..\..\icon.png" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
 	<!-- Grant the test project access to internal types (services are internal sealed by design) -->
