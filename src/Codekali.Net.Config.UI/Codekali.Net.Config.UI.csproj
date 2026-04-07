@@ -11,13 +11,13 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.1.5</Version>
+    <Version>1.1.6</Version>
     <Authors>Codekali - Jawwad A. Ayyubi</Authors>
     <Company>Codekali</Company>
     <Product>Codekali.Net.Config.UI</Product>
     <Description>A plug-and-play .NET library that provides a browser-based GUI for managing appsettings.json configuration files across environments.</Description>
 	 <PackageReleaseNotes>
-	  v1.1.5 — Full appsettings management suite.
+	  v1.1.6 — Full appsettings management suite.
 	  - Monaco Editor integration (VS Code engine) for Raw JSON editing
 	  - JSON comment preservation across all tree view and raw editor operations
 	  - Array support: expand, append items, remove items, update by index
@@ -42,12 +42,10 @@
   </PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="NUglify" Version="1.21.0" PrivateAssets="all"/>
+		<PackageReference Include="NUglify" Version="1.21.0" PrivateAssets="all" />
 	</ItemGroup>
 
-	<UsingTask TaskName="MinifyCss"
-				  TaskFactory="RoslynCodeTaskFactory"
-				  AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+	<UsingTask TaskName="MinifyCss" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<ParameterGroup>
 			<InputFile ParameterType="System.String" Required="true" />
 			<OutputFile ParameterType="System.String" Required="true" />
@@ -67,9 +65,7 @@
 		</Task>
 	</UsingTask>
 
-	<UsingTask TaskName="MinifyJs"
-				  TaskFactory="RoslynCodeTaskFactory"
-				  AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+	<UsingTask TaskName="MinifyJs" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<ParameterGroup>
 			<InputFile ParameterType="System.String" Required="true" />
 			<OutputFile ParameterType="System.String" Required="true" />
@@ -89,26 +85,26 @@
 		</Task>
 	</UsingTask>
 
-	<Target Name="MinifyAssets"
-			  BeforeTargets="BeforeBuild"
-			  Condition="'$(Configuration)' == 'Release'">
-		<MinifyCss
-		  InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.css"
-		  OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.min.css" />
-		<MinifyJs
-		  InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.js"
-		  OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js" />
+	<Target Name="MinifyAssets" BeforeTargets="BeforeBuild" Condition="'$(Configuration)' == 'Release'">
+		<MinifyCss InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.css" OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.min.css" />
+		<MinifyJs InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.js" OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js" />
 		<Message Text="[ConfigUI] Assets minified for Release build." Importance="high" />
 	</Target>
 
+	<Target Name="CopyNupkgToSolutionFolder" AfterTargets="Pack">
+		<!-- Copy to a local "nupkgs" folder in the solution directory -->
+		<Copy SourceFiles="$(PackageOutputPath)\$(PackageId).$(PackageVersion).nupkg"
+				DestinationFolder="$(SolutionDir)\nupkg"
+				OverwriteReadOnlyFiles="true" />
+	</Target>
+	
 	<ItemGroup>
 		<EmbeddedResource Include="UI\wwwroot\**\*" />
 		<!--
        Exclude .min files from being embedded in Debug builds where they
        do not exist yet, to avoid missing-file build errors.
      -->
-		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*"
-								Condition="'$(Configuration)' != 'Release'" />
+		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*" Condition="'$(Configuration)' != 'Release'" />
 	</ItemGroup>
 	<ItemGroup>
 		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
