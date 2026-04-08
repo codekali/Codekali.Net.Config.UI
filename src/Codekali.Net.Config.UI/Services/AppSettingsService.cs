@@ -27,7 +27,7 @@ namespace Codekali.Net.Config.UI.Services;
 /// </remarks>
 internal sealed class AppSettingsService(
     IConfigFileRepository repository,
-        IBackupService backupService,
+    IAuditService auditService,
     ConfigUIOptions options,
     ILogger<AppSettingsService> logger) : IAppSettingsService
 {
@@ -127,10 +127,14 @@ internal sealed class AppSettingsService(
                 return OperationResult.Failure(
                     $"Key '{keyPath}' already exists in '{fileName}'. Use Update to change its value.");
 
-            return await PersistMutationAsync(
+            var result = await PersistMutationAsync(
                 fileName,
                 raw => JsonCommentPreservingWriter.SetValue(raw, keyPath, jsonValue),
                 ct).ConfigureAwait(false);
+            if (result.IsSuccess)
+                await auditService.RecordAsync(fileName, AuditOperation.Add, keyPath, null, jsonValue, ct);
+            return result;
+
         }
         catch (Exception ex)
         {
@@ -159,10 +163,15 @@ internal sealed class AppSettingsService(
                 return OperationResult.Failure(
                     $"Key '{keyPath}' does not exist in '{fileName}'. Use Add to create it.");
 
-            return await PersistMutationAsync(
+            var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            var result = await PersistMutationAsync(
                 fileName,
                 raw => JsonCommentPreservingWriter.SetValue(raw, keyPath, jsonValue),
                 ct).ConfigureAwait(false);
+            if (result.IsSuccess)
+                await auditService.RecordAsync(fileName, AuditOperation.Update, keyPath, oldVal, jsonValue, ct);
+            return result;
+
         }
         catch (Exception ex)
         {
@@ -191,10 +200,15 @@ internal sealed class AppSettingsService(
                 return OperationResult.Failure(
                     $"Key '{keyPath}' does not exist in '{fileName}'.");
 
-            return await PersistMutationAsync(
+            var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            var result = await PersistMutationAsync(
                 fileName,
                 raw => JsonCommentPreservingWriter.RemoveKey(raw, keyPath),
                 ct).ConfigureAwait(false);
+            if (result.IsSuccess)
+                await auditService.RecordAsync(fileName, AuditOperation.Delete, keyPath, oldVal, null, ct);
+            return result;
+
         }
         catch (Exception ex)
         {
@@ -228,6 +242,7 @@ internal sealed class AppSettingsService(
             // Write the raw content verbatim — do NOT re-serialise.
             // The user typed this; keep it exactly as authored.
             await repository.WriteAllTextAsync(fullPath, rawJson, ct).ConfigureAwait(false);
+            await auditService.RecordAsync(fileName, AuditOperation.SaveRaw, "*", null, rawJson, ct);
             logger.LogInformation("Saved raw JSON to {FileName}", fileName);
             return OperationResult.Success();
         }
@@ -315,12 +330,16 @@ internal sealed class AppSettingsService(
                 return OperationResult.Failure(
                     $"'{keyPath}' already exists and is not an array. Use Update to replace it.");
 
-            return await PersistMutationAsync(fileName, raw =>
+            var result = await PersistMutationAsync(fileName, raw =>
             {
                 var (result, error) = JsonCommentPreservingWriter.AppendToArray(raw, keyPath, jsonValue);
                 if (error is not null) throw new InvalidOperationException(error);
                 return result;
             }, ct).ConfigureAwait(false);
+            if (result.IsSuccess)
+                await auditService.RecordAsync(fileName, AuditOperation.Update, keyPath, null, jsonValue, ct);
+            return result;
+
         }
         catch (Exception ex)
         {
@@ -347,12 +366,17 @@ internal sealed class AppSettingsService(
                 return OperationResult.Failure(
                     $"Index {index} is out of range (array has {arr.Count} items).");
 
-            return await PersistMutationAsync(fileName, raw =>
+            var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            var result = await PersistMutationAsync(fileName, raw =>
             {
                 var (result, error) = JsonCommentPreservingWriter.RemoveFromArray(raw, keyPath, index);
                 if (error is not null) throw new InvalidOperationException(error);
                 return result;
             }, ct).ConfigureAwait(false);
+            if (result.IsSuccess)
+                await auditService.RecordAsync(fileName, AuditOperation.Update, keyPath, oldVal, null, ct);
+            return result;
+
         }
         catch (Exception ex)
         {

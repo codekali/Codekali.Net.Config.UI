@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IAppSettingsService, AppSettingsService>();
         services.AddSingleton<IEnvironmentSwapService, EnvironmentSwapService>();
+        services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<ConfigUIApiHandler>();
         services.AddSingleton<ConfigUIStaticHandler>();
         

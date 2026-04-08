@@ -16,6 +16,7 @@ public class AppSettingsServiceTests
         BuildSut(string? fileContent = null, ConfigUIOptions? options = null)
     {
         var repo = new Mock<IConfigFileRepository>();
+        var audit = new Mock<IAuditService>();
         var backup = new Mock<IBackupService>();
         var opts = options ?? new ConfigUIOptions();
 
@@ -40,7 +41,7 @@ public class AppSettingsServiceTests
               .ReturnsAsync(OperationResult<string>.Success("/backup/file.bak"));
 
         var svc = new AppSettingsService(
-            repo.Object, backup.Object, opts, NullLogger<AppSettingsService>.Instance);
+            repo.Object, audit.Object, opts, NullLogger<AppSettingsService>.Instance);
 
         return (svc, repo, backup);
     }

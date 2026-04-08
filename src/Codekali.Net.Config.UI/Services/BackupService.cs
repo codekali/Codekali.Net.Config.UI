@@ -1,13 +1,16 @@
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Codekali.Net.Config.UI.Services;
 
 /// <summary>
 /// Creates and manages timestamped <c>.bak</c> backup copies of appsettings files.
 /// </summary>
-internal sealed class BackupService(IConfigFileRepository repository, ILogger<BackupService> logger) : IBackupService
+internal sealed class BackupService(IConfigFileRepository repository,
+    ConfigUIOptions options,
+    ILogger<BackupService> logger) : IBackupService
 {
 
     /// <inheritdoc/>
@@ -86,6 +89,106 @@ internal sealed class BackupService(IConfigFileRepository repository, ILogger<Ba
         {
             logger.LogError(ex, "Failed to restore backup {BackupPath}", backupPath);
             return OperationResult.Failure($"Restore failed: {ex.Message}");
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<OperationResult<string>> CreateNamedBackupAsync(
+        string fileName, string backupName, CancellationToken ct = default)
+    {
+        try
+        {
+            var sourcePath = repository.ResolvePath(fileName);
+            if (!repository.FileExists(sourcePath))
+                return OperationResult<string>.Failure($"Cannot back up '{fileName}': file does not exist.");
+
+            // Sanitise the name so it is safe as a file-name segment.
+            var safeName = string.Concat(backupName
+                .Where(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '_'));
+            if (string.IsNullOrWhiteSpace(safeName))
+                safeName = DateTime.UtcNow.ToString("yyyyMMddTHHmmss");
+
+            var backupPath = sourcePath + $".{safeName}.bak";
+            await repository.CopyFileAsync(sourcePath, backupPath, ct).ConfigureAwait(false);
+            logger.LogInformation("Named backup created: {BackupPath}", backupPath);
+            return OperationResult<string>.Success(backupPath);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to create named backup for {FileName}", fileName);
+            return OperationResult<string>.Failure($"Backup failed: {ex.Message}");
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task<string> GetNextSuggestedNameAsync(string fileName, CancellationToken ct = default)
+    {
+        var prefix = options.BackupVersionPrefix;
+        if (string.IsNullOrWhiteSpace(prefix))
+        {
+            // No prefix configured — suggest a human-readable timestamp.
+            return Task.FromResult(DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"));
+        }
+
+        // Find the highest minor version already used for this prefix + file.
+        var fullPath = repository.ResolvePath(fileName);
+        var backups = repository.DiscoverBackups(fullPath).ToList();
+
+        // Pattern: <fullPath>.<prefix>.<minor>.bak  e.g.  appsettings.json.v1.3.bak
+        var pattern = $".{prefix}.";
+        int maxMinor = -1;
+        foreach (var b in backups)
+        {
+            var seg = Path.GetFileName(b); // appsettings.json.v1.3.bak
+            var idx = seg.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+            var after = seg[(idx + pattern.Length)..]; // "3.bak"
+            var dotBak = after.IndexOf(".bak", StringComparison.OrdinalIgnoreCase);
+            if (dotBak < 0) continue;
+            if (int.TryParse(after[..dotBak], out var minor) && minor > maxMinor)
+                maxMinor = minor;
+        }
+
+        return Task.FromResult($"{prefix}.{maxMinor + 1}");
+    }
+
+    /// <inheritdoc/>
+    public async Task<OperationResult<(string current, string backup)>> GetDiffContentAsync(
+        string fileName, string backupPath, CancellationToken ct = default)
+    {
+        try
+        {
+            var fullPath = repository.ResolvePath(fileName);
+            if (!repository.FileExists(fullPath))
+                return OperationResult<(string, string)>.Failure($"File not found: {fileName}");
+            if (!repository.FileExists(backupPath))
+                return OperationResult<(string, string)>.Failure($"Backup not found: {backupPath}");
+
+            var current = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+            var backup = await repository.ReadAllTextAsync(backupPath, ct).ConfigureAwait(false);
+            return OperationResult<(string, string)>.Success((current, backup));
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<(string, string)>.Failure(ex.Message);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<OperationResult> DeleteBackupAsync(string backupPath, CancellationToken ct = default)
+    {
+        try
+        {
+            if (!repository.FileExists(backupPath))
+                return OperationResult.Failure($"Backup not found: {backupPath}");
+            await Task.Run(() => File.Delete(backupPath), ct).ConfigureAwait(false);
+            logger.LogInformation("Deleted backup: {BackupPath}", backupPath);
+            return OperationResult.Success();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to delete backup {BackupPath}", backupPath);
+            return OperationResult.Failure(ex.Message);
         }
     }
 }

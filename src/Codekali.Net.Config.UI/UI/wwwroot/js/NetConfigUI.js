@@ -18,6 +18,10 @@ let _monacoModels = {};
 let _monacoFallback = false;
 let _monacoInitPromise = null;
 
+// ── Right Sidebar ─────────────────────────────────────────────────────────
+let _rsTab = 'backups';
+let _rsResizing = false;
+
 // ── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
    if (window.READONLY) {
@@ -71,7 +75,7 @@ let _hotReloadDismissed = false;
 
 function startHotReloadPolling() {
    if (_hotReloadInterval) return;
-   _hotReloadInterval = setInterval(checkHotReload, 3000);
+   _hotReloadInterval = setInterval(checkHotReload, 1000000);
 }
 
 function stopHotReloadPolling() {
@@ -225,6 +229,11 @@ async function selectFile(fileName) {
 
    setView('editor');
    await loadEntries();
+
+   if (document.getElementById('right-sidebar').style.display !== 'none') {
+      document.getElementById('rs-file-label').textContent = fileName;
+      loadRightSidebar();
+   }
 }
 
 // Hides toolbar rows and restores the "no file" landing state.
@@ -603,14 +612,6 @@ function confirmDelete(fullPath, e) {
    );
 }
 
-// ── Backup ────────────────────────────────────────────────────────────────
-async function createBackup() {
-   if (!currentFile) { toast('Select a file first', 'warn'); return; }
-   const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup`);
-   if (r.success) toast('Backup created ✓', 'success');
-   else toast(r.error, 'error');
-}
-
 // ── Monaco Editor ─────────────────────────────────────────────────────────
 async function initMonaco() {
    if (_monacoInitPromise) return _monacoInitPromise;
@@ -973,6 +974,262 @@ function confirmDeleteArrayItem(arrayPath, index, e) {
       }
    );
 }
+
+function openRightSidebar() {
+   if (!currentFile) { toast('Select a file first', 'warn'); return; }
+   const rs = document.getElementById('right-sidebar');
+   rs.style.display = 'flex';
+   document.getElementById('rs-file-label').textContent = currentFile.fileName;
+   loadRightSidebar();
+}
+
+function closeRightSidebar() {
+   document.getElementById('right-sidebar').style.display = 'none';
+}
+
+function setRsTab(tab) {
+   _rsTab = tab;
+   ['backups', 'audit'].forEach(t => {
+      document.getElementById('rs-tab-' + t).classList.toggle('active', t === tab);
+      document.getElementById('rs-panel-' + t).classList.toggle('hidden', t !== tab);
+   });
+   if (tab === 'audit') loadAuditLog();
+   else loadBackupList();
+}
+
+async function loadRightSidebar() {
+   if (_rsTab === 'backups') await loadBackupList();
+   else await loadAuditLog();
+}
+
+// ── Backup list ───────────────────────────────────────────────────────────
+async function loadBackupList() {
+   if (!currentFile) return;
+   const container = document.getElementById('backup-list');
+   container.innerHTML = '<div class="rs-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div></div>';
+   const r = await api('GET', `/files/${enc(currentFile.fileName)}/backups`);
+   if (!r.success) { container.innerHTML = `<div class="rs-empty text-red">${escHtml(r.error)}</div>`; return; }
+   if (!r.data.length) { container.innerHTML = '<div class="rs-empty">No backups yet.</div>'; return; }
+   container.innerHTML = r.data.map(path => {
+      const name = parseBackupName(path);
+      const date = parseBackupDate(path);
+      return `<div class="backup-item">
+            <div class="backup-item-info">
+                <span class="backup-name">${escHtml(name)}</span>
+                <span class="backup-date">${escHtml(date)}</span>
+            </div>
+            <div class="backup-item-actions">
+                <button class="btn btn-ghost btn-sm" title="Diff" onclick='showDiffModal(${JSON.stringify(path)})'>⊞</button>
+                <button class="btn btn-secondary btn-sm" title="Restore" onclick='confirmRestore(${JSON.stringify(path) })'>↩</button>
+                <button class="btn btn-danger btn-sm" title="Delete" onclick='confirmDeleteBackup(${JSON.stringify(path) })'>✕</button>
+            </div>
+        </div>`;
+   }).join('');
+}
+
+function parseBackupName(fullPath) {
+   // Extract the label between the last '.' of the original filename and '.bak'
+   // e.g. appsettings.json.v1.2.bak → "v1.2"
+   //      appsettings.json.20240101T120000.bak → "20240101T120000"
+   const file = fullPath.replace(/\\/g, '/').split('/').pop();
+   // Remove trailing .bak then strip the base filename prefix
+   const withoutBak = file.endsWith('.bak') ? file.slice(0, -4) : file;
+   // The base is everything up to and including the second-to-last dot group
+   // Strategy: find last occurrence of known appsettings filename pattern
+   const m = withoutBak.match(/appsettings(?:\.[^.]+)?\.json\.(.+)$/i);
+   return m ? m[1] : withoutBak;
+}
+
+function parseBackupDate(fullPath) {
+   const name = parseBackupName(fullPath);
+   // Try timestamp format yyyyMMddTHHmmss or yyyyMMdd-HHmmss
+   const m = name.match(/^(\d{4})(\d{2})(\d{2})[T-](\d{2})(\d{2})(\d{2})$/);
+   if (m) {
+      const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+      return isNaN(d) ? name : d.toLocaleString();
+   }
+   return ''; // versioned names don't have a parseable date
+}
+
+// ── Named backup dialog ───────────────────────────────────────────────────
+async function promptNamedBackup() {
+   if (!currentFile) return;
+   // Fetch suggestion from server
+   const sr = await api('POST', `/files/${enc(currentFile.fileName)}/backup/suggest`);
+   const suggested = sr.success ? sr.data : new Date().toISOString().slice(0, 10);
+
+   showModal(
+      '💾 Create Backup',
+      `<div class="form-field" style="width:100%">
+            <span class="field-label">Backup name / label</span>
+            <input class="form-input" id="modal-backup-name" value="${escAttr(suggested)}"
+                style="width:100%" placeholder="e.g. v1.2 or before-payment-refactor" />
+            <span style="font-size:11px;color:var(--text2);margin-top:4px;display:block">
+                File will be saved as: <code>${escHtml(currentFile.fileName)}.{name}.bak</code>
+            </span>
+        </div>`,
+      async () => {
+         const name = document.getElementById('modal-backup-name')?.value?.trim() ?? suggested;
+         const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup`, { name });
+         if (r.success) { toast('Backup created ✓', 'success'); await loadBackupList(); }
+         else toast(r.error, 'error');
+      }
+   );
+   setTimeout(() => {
+      const inp = document.getElementById('modal-backup-name');
+      if (inp) { inp.focus(); inp.select(); }
+   }, 50);
+}
+
+// ── Restore ───────────────────────────────────────────────────────────────
+function confirmRestore(backupPath) {
+   const name = parseBackupName(backupPath);
+   showModal(
+      'Restore backup?',
+      `Restore <strong>${escHtml(currentFile.fileName)}</strong> from backup <strong class="monospace">${escHtml(name)}</strong>?
+        <br><br><span style="color:var(--yellow);font-size:12px">⚠ The current file will be backed up automatically before restoring.</span>`,
+      async () => {
+         const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup/restore`,
+            { backupPath });
+         if (r.success) {
+            toast('Restored ✓', 'success');
+            await loadBackupList();
+            await loadEntries();
+         } else toast(r.error, 'error');
+      }
+   );
+}
+
+// ── Delete backup ─────────────────────────────────────────────────────────
+function confirmDeleteBackup(backupPath) {
+   const name = parseBackupName(backupPath);
+   showModal(
+      'Delete backup?',
+      `Permanently delete backup <strong class="monospace">${escHtml(name)}</strong>? This cannot be undone.`,
+      async () => {
+         const r = await api('DELETE',
+            `/files/${enc(currentFile.fileName)}/backup?path=${enc(backupPath)}`);
+         if (r.success) { toast('Backup deleted ✓', 'success'); await loadBackupList(); }
+         else toast(r.error, 'error');
+      }
+   );
+}
+
+// ── Diff modal ────────────────────────────────────────────────────────────
+async function showDiffModal(backupPath) {
+   const name = parseBackupName(backupPath);
+   const r = await api('GET',
+      `/files/${enc(currentFile.fileName)}/backups/diff?backup=${enc(backupPath)}`);
+   if (!r.success) { toast(r.error, 'error'); return; }
+
+   const { current, backup } = r.data;
+   const lines1 = backup.split('\n');
+   const lines2 = current.split('\n');
+
+   // Simple line-by-line diff rendering
+   const maxLen = Math.max(lines1.length, lines2.length);
+   let rows = '';
+   for (let i = 0; i < maxLen; i++) {
+      const l1 = lines1[i] ?? '';
+      const l2 = lines2[i] ?? '';
+      const changed = l1 !== l2;
+      rows += `<tr class="${changed ? 'diff-changed' : 'diff-same'}">
+            <td class="diff-ln">${i + 1}</td>
+            <td class="diff-code">${escHtml(l1)}</td>
+            <td class="diff-ln">${i + 1}</td>
+            <td class="diff-code">${escHtml(l2)}</td>
+        </tr>`;
+   }
+
+   // Use a wide modal for the diff
+   document.getElementById('modal-title').innerHTML =
+      `⊞ Diff — <span class="monospace" style="font-size:13px">${escHtml(name)}</span> vs current`;
+   document.getElementById('modal-body').innerHTML = `
+        <div style="overflow:auto;max-height:60vh;font-family:var(--font);font-size:12px">
+            <table class="diff-table" style="min-width:700px">
+                <thead><tr>
+                    <th colspan="2">Backup (${escHtml(name)})</th>
+                    <th colspan="2">Current</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+   document.getElementById('modal-backdrop').classList.remove('hidden');
+   // Widen modal for diff view
+   document.querySelector('.modal').style.width = 'min(90vw, 900px)';
+   document.getElementById('modal-confirm').style.display = 'none';
+   // Restore modal width on close
+   document.getElementById('modal-cancel').onclick = _origCloseModal;
+}
+
+// Override closeModal to reset modal width
+const _origCloseModal = function () {
+   closeModal();
+   document.querySelector('.modal').style.width = '';
+   document.getElementById('modal-confirm').style.display = '';
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────
+async function loadAuditLog() {
+   if (!currentFile) return;
+   const container = document.getElementById('audit-list');
+   container.innerHTML = '<div class="rs-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div></div>';
+   const r = await api('GET', `/files/${enc(currentFile.fileName)}/audit`);
+   if (!r.success) { container.innerHTML = `<div class="rs-empty text-red">${escHtml(r.error)}</div>`; return; }
+   if (!r.data.length) {
+      container.innerHTML = '<div class="rs-empty">No audit entries yet.<br><span style="font-size:11px">Enable via <code>options.EnableAuditLogging = true</code></span></div>';
+      return;
+   }
+   const opColor = {
+      Add: 'var(--green)', Update: 'var(--accent)', Delete: 'var(--red)',
+      Restore: 'var(--purple)', SaveRaw: 'var(--orange)',
+      AppendArrayItem: 'var(--green)', RemoveArrayItem: 'var(--red)'
+   };
+   container.innerHTML = r.data.map(e => {
+      const color = opColor[e.operation] ?? 'var(--text2)';
+      const ts = new Date(e.timestamp).toLocaleString();
+      return `<div class="audit-item">
+            <div class="audit-header">
+                <span class="audit-op" style="color:${color}">${escHtml(e.operation)}</span>
+                <span class="audit-ts">${escHtml(ts)}</span>
+            </div>
+            <div class="audit-key monospace">${escHtml(e.keyPath)}</div>
+            ${e.oldValue || e.newValue ? `
+            <div class="audit-values">
+                ${e.oldValue ? `<div class="audit-val old"><span>before:</span> <code>${escHtml(e.oldValue)}</code></div>` : ''}
+                ${e.newValue ? `<div class="audit-val new"><span>after:</span> <code>${escHtml(e.newValue)}</code></div>` : ''}
+            </div>` : ''}
+        </div>`;
+   }).join('');
+}
+
+// ── Right sidebar resizer ─────────────────────────────────────────────────
+(function initResizer() {
+   document.addEventListener('DOMContentLoaded', () => {
+      const resizer = document.getElementById('rs-resizer');
+      if (!resizer) return;
+      let startX, startW;
+      resizer.addEventListener('mousedown', e => {
+         _rsResizing = true;
+         startX = e.clientX;
+         startW = document.getElementById('right-sidebar').offsetWidth;
+         document.body.style.userSelect = 'none';
+         document.body.style.cursor = 'col-resize';
+      });
+      document.addEventListener('mousemove', e => {
+         if (!_rsResizing) return;
+         const delta = startX - e.clientX; // dragging left = wider
+         const newW = Math.max(220, Math.min(600, startW + delta));
+         document.getElementById('right-sidebar').style.width = newW + 'px';
+      });
+      document.addEventListener('mouseup', () => {
+         if (!_rsResizing) return;
+         _rsResizing = false;
+         document.body.style.userSelect = '';
+         document.body.style.cursor = '';
+      });
+   });
+})();
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function showEditorLoading(show) {

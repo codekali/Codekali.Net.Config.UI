@@ -16,6 +16,7 @@ namespace Codekali.Net.Config.UI.Middleware
     {
         private readonly IAppSettingsService _appSettings;
         private readonly IEnvironmentSwapService _envSwap;
+        private readonly IAuditService _audit;
         private readonly IBackupService _backup;
 
         private static readonly JsonSerializerOptions _readOpts = new()
@@ -30,10 +31,12 @@ namespace Codekali.Net.Config.UI.Middleware
         public ConfigUIApiHandler(
             IAppSettingsService appSettingsService,
             IEnvironmentSwapService environmentSwapService,
+            IAuditService auditService,
             IBackupService backupService)
         {
             _appSettings = appSettingsService;
             _envSwap = environmentSwapService;
+            _audit = auditService;
             _backup = backupService;
 
             _fileRoutes = new Dictionary<(string, string), Func<HttpContext, string, Task>>()
@@ -49,6 +52,11 @@ namespace Codekali.Net.Config.UI.Middleware
                 [("PUT", "raw")] = PutRawAsync,
                 [("DELETE", "entries")] = DeleteEntryAsync,
                 [("DELETE", "array-item")] = DeleteArrayItemAsync,   // ← new
+                [("GET", "audit")] = GetAuditAsync,
+                [("GET", "backups/diff")] = GetBackupDiffAsync,
+                [("DELETE", "backup")] = DeleteBackupAsync,
+                [("POST", "backup/suggest")] = GetBackupSuggestAsync,
+                [("POST", "backup/restore")] = PostBackupRestoreAsync,
             };
         }
 
@@ -75,7 +83,7 @@ namespace Codekali.Net.Config.UI.Middleware
                 if (parts.Length >= 3)
                 {
                     var fileName = Uri.UnescapeDataString(parts[1]);
-                    var action = parts[2];
+                    var action = apiPath.Contains(':') ? parts[2] : string.Join('/', parts[2..]);
                     if (_fileRoutes.TryGetValue((method, action), out var handler))
                     { await handler(ctx, fileName).ConfigureAwait(false); return; }
                 }
@@ -84,6 +92,52 @@ namespace Codekali.Net.Config.UI.Middleware
             ctx.Response.StatusCode = 404;
             await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
                 new { error = $"Unknown API route: {apiPath}" }).ConfigureAwait(false);
+        }
+
+        // ── Audit handlers ────────────────────────────────────────────────
+
+        private async Task GetAuditAsync(HttpContext ctx, string fileName)
+        {
+            var result = await _audit.GetEntriesAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+            await RespondAsync(ctx, result).ConfigureAwait(false);
+        }
+
+        private async Task GetBackupDiffAsync(HttpContext ctx, string fileName)
+        {
+            var backupPath = Uri.UnescapeDataString(ctx.Request.Query["backup"].ToString());
+            if (string.IsNullOrWhiteSpace(backupPath))
+            { await BadRequestAsync(ctx, "Missing 'backup' query param.").ConfigureAwait(false); return; }
+            var result = await _backup.GetDiffContentAsync(fileName, backupPath, ctx.RequestAborted).ConfigureAwait(false);
+            if (!result.IsSuccess) { await RespondAsync(ctx, result).ConfigureAwait(false); return; }
+            ctx.Response.StatusCode = 200;
+            await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
+                new { success = true, data = new { current = result.Value.current, backup = result.Value.backup } })
+                .ConfigureAwait(false);
+        }
+
+        private async Task DeleteBackupAsync(HttpContext ctx, string fileName)
+        {
+            var backupPath = Uri.UnescapeDataString(ctx.Request.Query["path"].ToString());
+            if (string.IsNullOrWhiteSpace(backupPath))
+            { await BadRequestAsync(ctx, "Missing 'path' query param.").ConfigureAwait(false); return; }
+            var result = await _backup.DeleteBackupAsync(backupPath, ctx.RequestAborted).ConfigureAwait(false);
+            await RespondAsync(ctx, result).ConfigureAwait(false);
+        }
+
+        private async Task GetBackupSuggestAsync(HttpContext ctx, string fileName)
+        {
+            var suggestion = await _backup.GetNextSuggestedNameAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+            ctx.Response.StatusCode = 200;
+            await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
+                new { success = true, data = suggestion }).ConfigureAwait(false);
+        }
+        private async Task PostBackupRestoreAsync(HttpContext ctx, string fileName)
+        {
+            var body = await ReadBodyAsync<RestorePayload>(ctx).ConfigureAwait(false);
+            if (body is null || string.IsNullOrWhiteSpace(body.BackupPath))
+            { await BadRequestAsync(ctx, "Missing 'backupPath' in request body.").ConfigureAwait(false); return; }
+            var result = await _backup.RestoreBackupAsync(body.BackupPath, ctx.RequestAborted).ConfigureAwait(false);
+            await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
         // ── Top-level handlers ────────────────────────────────────────────────
@@ -204,7 +258,16 @@ namespace Codekali.Net.Config.UI.Middleware
 
         private async Task PostBackupAsync(HttpContext ctx, string fileName)
         {
-            var result = await _backup.CreateBackupAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+            // Try to read optional body with { name }
+            BackupPayload? body = null;
+            try { body = await ReadBodyAsync<BackupPayload>(ctx).ConfigureAwait(false); } catch { }
+
+            OperationResult<string> result;
+            if (!string.IsNullOrWhiteSpace(body?.Name))
+                result = await _backup.CreateNamedBackupAsync(fileName, body.Name, ctx.RequestAborted).ConfigureAwait(false);
+            else
+                result = await _backup.CreateBackupAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+
             await RespondAsync(ctx, result).ConfigureAwait(false);
         }
 
@@ -310,5 +373,9 @@ namespace Codekali.Net.Config.UI.Middleware
         {
             public string Content { get; set; } = string.Empty;
         }
+
+        private sealed class BackupPayload { public string? Name { get; set; } }
+
+        private sealed class RestorePayload { public string BackupPath { get; set; } = string.Empty; }
     }
 }
