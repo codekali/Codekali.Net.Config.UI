@@ -1323,6 +1323,7 @@ header {
     flex-direction: row;
     overflow: hidden;
     position: relative;
+    min-height: 0; 
 }
 
 .right-sidebar-resizer {
@@ -1347,7 +1348,8 @@ header {
     flex-direction: column;
     flex: 1;
     overflow: hidden;
-    padding-left: 4px; /* account for resizer */
+    padding-left: 4px;
+    min-height: 0;
 }
 
 .right-sidebar-header {
@@ -1403,6 +1405,7 @@ header {
     flex-direction: column;
     flex: 1;
     overflow: hidden;
+    min-height: 0;
 }
 
 .rs-actions {
@@ -1420,6 +1423,7 @@ header {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-height: 0;
 }
 
 .rs-empty {
@@ -1446,6 +1450,7 @@ header {
     border: 1px solid var(--border);
     background: var(--bg3);
     transition: border-color .15s;
+    flex-shrink: 0;
 }
 
     .backup-item:hover {
@@ -1565,8 +1570,31 @@ header {
 
 .diff-code {
     padding: 2px 8px;
-    white-space: pre;
+    white-space: pre-wrap;
+    word-break: break-all;
     font-family: var(--font);
     font-size: 12px;
-    min-width: 300px;
 }
+
+
+.audit-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    background: var(--bg3);
+    flex-shrink: 0;
+}
+
+.audit-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+    .audit-group-header:hover {
+        background: var(--border);
+    }

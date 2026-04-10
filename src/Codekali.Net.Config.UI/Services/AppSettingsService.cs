@@ -164,6 +164,7 @@ internal sealed class AppSettingsService(
                     $"Key '{keyPath}' does not exist in '{fileName}'. Use Add to create it.");
 
             var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            if (oldVal is not null && oldVal.Equals(jsonValue)) return OperationResult.Success();
             var result = await PersistMutationAsync(
                 fileName,
                 raw => JsonCommentPreservingWriter.SetValue(raw, keyPath, jsonValue),
