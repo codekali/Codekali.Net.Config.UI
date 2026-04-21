@@ -114,4 +114,27 @@ public sealed class ConfigUIOptions
     /// Defaults to <c>true</c>.
     /// </summary>
     public bool ShowReloadWarning { get; set; } = true;
+
+    /// <summary>
+    /// Optional version prefix for named backups, e.g. <c>"v1"</c>.
+    /// When set, sequential backups are named <c>appsettings.json.v1.0.bak</c>,
+    /// <c>appsettings.json.v1.1.bak</c>, etc.
+    /// When null (default), backups use a timestamp suffix.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.RegularExpression(@"^[a-zA-Z0-9._-]{2,30}$", ErrorMessage = "BackupVersionPrefix may only contain letters, numbers, period, hyphen, and underscores.")]
+    public string? BackupVersionPrefix { get; set; }
+
+    /// <summary>
+    /// When <c>true</c>, every write operation (Add, Update, Delete, SaveRaw, etc.)
+    /// is appended to a per-file <c>.audit.json</c> log alongside the appsettings file.
+    /// Defaults to <c>false</c>.
+    /// </summary>
+    public bool EnableAuditLogging { get; set; } = false;
+
+    /// <summary>
+    /// When <c>true</c> and <see cref="EnableAuditLogging"/> is also <c>true</c>,
+    /// audit entries are additionally forwarded to <c>ILogger</c> at Information level.
+    /// Defaults to <c>false</c>.
+    /// </summary>
+    public bool ForwardAuditToLogger { get; set; } = false;
 }

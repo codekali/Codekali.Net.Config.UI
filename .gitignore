@@ -416,3 +416,5 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+/src/Codekali.Net.Config.UI/UI/wwwroot/css/NetConfigUI.min.css
+/src/Codekali.Net.Config.UI/UI/wwwroot/js/NetConfigUI.min.js

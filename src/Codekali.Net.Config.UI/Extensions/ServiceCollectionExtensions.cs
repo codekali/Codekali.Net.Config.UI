@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.ComponentModel.DataAnnotations;
 
 namespace Codekali.Net.Config.UI.Extensions;
 
@@ -42,9 +43,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBackupService, BackupService>();
         services.AddSingleton<IAppSettingsService, AppSettingsService>();
         services.AddSingleton<IEnvironmentSwapService, EnvironmentSwapService>();
+        services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<ConfigUIApiHandler>();
         services.AddSingleton<ConfigUIStaticHandler>();
-        
+
+        var results = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(options, new ValidationContext(options), results, true))
+            throw new InvalidOperationException(results[0].ErrorMessage);
+
         return services;
     }
 
