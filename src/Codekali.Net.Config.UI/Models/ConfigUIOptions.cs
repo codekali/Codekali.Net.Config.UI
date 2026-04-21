@@ -121,6 +121,7 @@ public sealed class ConfigUIOptions
     /// <c>appsettings.json.v1.1.bak</c>, etc.
     /// When null (default), backups use a timestamp suffix.
     /// </summary>
+    [System.ComponentModel.DataAnnotations.RegularExpression(@"^[a-zA-Z0-9._-]{2,30}$", ErrorMessage = "BackupVersionPrefix may only contain letters, numbers, period, hyphen, and underscores.")]
     public string? BackupVersionPrefix { get; set; }
 
     /// <summary>

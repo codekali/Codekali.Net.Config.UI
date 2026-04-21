@@ -29,6 +29,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('add-btn').disabled = true;
       document.getElementById('backup-btn').disabled = true;
    }
+   if (!window.AUDIT_ENABLED) {
+      document.getElementById('rs-tab-audit').style.display = 'none';
+      document.getElementById('rs-panel-audit').classList.add('hidden');
+   }
    await loadFileList();
 });
 
@@ -460,7 +464,7 @@ function openInlineEditor(slot, fullPath) {
                placeholder="${entry?.valueType === 'null' ? 'null' : ''}"
                onkeydown="handleEditKey(event,'${escAttr(fullPath)}')" />`
       }
-        <button class="btn btn-primary btn-sm" onclick="submitEdit('${escAttr(fullPath)}')">Save</button>
+        <button class="btn btn-primary btn-sm" onclick="_actionTaken=true;submitEdit('${escAttr(fullPath)}')">Save</button>
         <button class="btn btn-ghost btn-sm"   onclick="cancelEdit()">✕</button>
       </div>`;
    slot.classList.remove('hidden');
