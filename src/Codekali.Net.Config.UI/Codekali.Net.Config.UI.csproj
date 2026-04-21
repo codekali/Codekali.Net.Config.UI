@@ -11,22 +11,15 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.1.6</Version>
+    <Version>1.2.1</Version>
     <Authors>Codekali - Jawwad A. Ayyubi</Authors>
     <Company>Codekali</Company>
     <Product>Codekali.Net.Config.UI</Product>
     <Description>A plug-and-play .NET library that provides a browser-based GUI for managing appsettings.json configuration files across environments.</Description>
 	 <PackageReleaseNotes>
-	  v1.1.6 — Full appsettings management suite.
-	  - Monaco Editor integration (VS Code engine) for Raw JSON editing
-	  - JSON comment preservation across all tree view and raw editor operations
-	  - Array support: expand, append items, remove items, update by index
-	  - Null value editing, multi-line value textarea, Ctrl+Enter to save
-	  - ASP.NET Core Identity Authorization policy support
-	  - Hot reload detection with dismissible banner
-	  - Fixed sensitive key masking ($schema, AllowedOrigins no longer masked)
-	  - Auto-generated access token persisted to launchSettings.json (opt-in)
-	  - CSS and JS minification on Release builds
+		 v1.2.1 — Full appsettings management suite.
+		 - Backup files now include timestamp and optional version prefix, e.g. <c>appsettings.json.v1.2.1.20240601T1530.bak</c>
+		 - Audit logs added to track changes to appsettings files, including raw JSON saves
 	 </PackageReleaseNotes>
     <PackageTags>appsettings;configuration;ui;devtools;dotnet;middleware;json;editor</PackageTags>
     <PackageProjectUrl>https://codekali.github.io/Codekali.NET.Config.UI/</PackageProjectUrl>
