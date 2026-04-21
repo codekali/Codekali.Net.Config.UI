@@ -30,11 +30,7 @@
                     <div class="nav-item active" id="nav-editor" onclick="setView('editor')"><span class="nav-icon">📝</span> Editor</div>
                     <div class="nav-item" id="nav-swap" onclick="setView('swap')"><span class="nav-icon">⇄</span> Move / Copy</div>
                     <div class="nav-item" id="nav-diff" onclick="setView('diff')"><span class="nav-icon">⊞</span> Compare</div>
-                    <!--
-                        Fix #2 — Guide is a first-class view in the nav.
-                        It is accessible at any time regardless of whether a file is selected,
-                        and is completely decoupled from the editor toolbar.
-                    -->
+                    <div class="nav-item" id="nav-tests" onclick="setView('tests')"><span class="nav-icon">🧪</span> Tests</div>
                     <div class="nav-item" id="nav-guide" onclick="setView('guide')"><span class="nav-icon">📖</span> Guide</div>
                 </nav>
             </aside>
@@ -42,17 +38,17 @@
             <div class="workspace">
                 <div class="content">
                     <!--
-            Fix #2 — Toolbar visibility.
-            Both toolbar rows start hidden (class="hidden").
-            They are shown ONLY by selectFile() — i.e. only after an
-            appsettings file has been chosen from the sidebar.
-            setView() never touches the toolbar visibility directly;
-            when switching away from the editor the toolbar rows remain
-            in whatever state they were last set to, but the editor panel
-            itself is hidden so they are invisible anyway.
-            When setView('editor') is called with no currentFile the rows
-            stay hidden — the user sees the clean #editor-no-file state.
-        -->
+        Fix #2 — Toolbar visibility.
+        Both toolbar rows start hidden (class="hidden").
+        They are shown ONLY by selectFile() — i.e. only after an
+        appsettings file has been chosen from the sidebar.
+        setView() never touches the toolbar visibility directly;
+        when switching away from the editor the toolbar rows remain
+        in whatever state they were last set to, but the editor panel
+        itself is hidden so they are invisible anyway.
+        When setView('editor') is called with no currentFile the rows
+        stay hidden — the user sees the clean #editor-no-file state.
+    -->
                     <div class="toolbar" id="main-toolbar">
                         <div class="toolbar-row toolbar-row-1 hidden" id="editor-toolbar-row1">
                             <span class="toolbar-title" id="toolbar-title"></span>
@@ -88,7 +84,7 @@
                     </div>
 
                     <!-- Add Key Form -->
-                    <div id="add-form" class="hidden" style="padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border)">    
+                    <div id="add-form" class="hidden" style="padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border)">
                         <div class="form-row">
                             <div class="form-field">
                                 <span class="field-label">Key Path (colon-separated)</span>
@@ -104,16 +100,10 @@
                     </div>
 
                     <!-- ══════════════════════════════════════════════════════
-             EDITOR VIEW
-        ══════════════════════════════════════════════════════ -->
+                         EDITOR VIEW
+                    ══════════════════════════════════════════════════════ -->
                     <div class="panel" id="view-editor">
 
-                        <!--
-                Fix #2 — Clean "no file" landing state.
-                Shown when the Editor nav item is active but no file has
-                been selected yet. Contains a brief prompt and a link to
-                the Guide view. No toolbar controls are shown here.
-            -->
                         <div id="editor-no-file" class="no-file-state">
                             <div class="no-file-inner">
                                 <div class="no-file-icon">⚙</div>
@@ -138,6 +128,9 @@
                             <span class="text-muted" style="font-size:13px">Loading…</span>
                         </div>
 
+                        <!-- Schema violations banner — shown after validate call -->
+                        <div id="schema-violations" class="hidden" style="padding:8px 16px;background:var(--bg2);border-bottom:2px solid var(--red);flex-shrink:0"></div>
+
                         <!-- Tree view -->
                         <div id="tree-view" class="tree hidden"></div>
 
@@ -156,8 +149,8 @@
                     </div>
 
                     <!-- ══════════════════════════════════════════════════════
-             GUIDE VIEW  — dedicated, always accessible
-        ══════════════════════════════════════════════════════ -->
+                         GUIDE VIEW  — dedicated, always accessible
+                    ══════════════════════════════════════════════════════ -->
                     <div class="panel hidden" id="view-guide">
                         <div class="welcome-wrap">
 
@@ -232,8 +225,8 @@
                     </div>
 
                     <!-- ══════════════════════════════════════════════════════
-             SWAP VIEW
-        ══════════════════════════════════════════════════════ -->
+                         SWAP VIEW
+                    ══════════════════════════════════════════════════════ -->
                     <div class="panel hidden" id="view-swap">
                         <div class="swap-panel">
                             <div class="card">
@@ -271,8 +264,8 @@
                     </div>
 
                     <!-- ══════════════════════════════════════════════════════
-             DIFF VIEW
-        ══════════════════════════════════════════════════════ -->
+                         DIFF VIEW
+                    ══════════════════════════════════════════════════════ -->
                     <div class="panel hidden" id="view-diff">
                         <div class="diff-controls">
                             <div class="form-field">
@@ -287,7 +280,22 @@
                         </div>
                         <div id="diff-result"></div>
                     </div>
-
+                    
+                    <!-- ══════════════════════════════════════════════════════
+                         TESTS VIEW 
+                    ══════════════════════════════════════════════════════ -->
+                    <div class="panel hidden" id="view-tests">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+                            <button class="btn btn-primary" onclick="runAssertions()">▶ Run All Tests</button>
+                            <span id="tests-summary" style="font-size:13px;color:var(--text2)"></span>
+                        </div>
+                        <div id="tests-result"></div>
+                        <div id="tests-no-tests" class="hidden" style="color:var(--text2);font-size:13px;padding:16px;line-height:1.8">
+                            No configuration tests registered.<br>
+                            Implement <code>IConfigurationTest</code> and register it in DI:<br>
+                            <code>builder.Services.AddSingleton&lt;IConfigurationTest, MyTests&gt;();</code>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- RIGHT SIDEBAR -->

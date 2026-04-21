@@ -137,4 +137,17 @@ public sealed class ConfigUIOptions
     /// Defaults to <c>false</c>.
     /// </summary>
     public bool ForwardAuditToLogger { get; set; } = false;
+
+    /// <summary>
+    /// Absolute or relative path to a JSON Schema file (draft-07 subset).
+    /// When set, the schema is validated before every save operation.
+    /// Relative paths are resolved against <see cref="ConfigDirectory"/>.
+    /// </summary>
+    public string? SchemaPath { get; set; }
+
+    /// <summary>
+    /// Inline JSON Schema string. Takes precedence over <see cref="SchemaPath"/>
+    /// when both are set. Useful for embedding a schema directly in Program.cs.
+    /// </summary>
+    public string? SchemaJson { get; set; }
 }

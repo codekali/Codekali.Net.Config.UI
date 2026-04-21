@@ -3,7 +3,9 @@ using Codekali.Net.Config.UI.Middleware;
 using Codekali.Net.Config.UI.Models;
 using Codekali.Net.Config.UI.Services;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel.DataAnnotations;
@@ -45,7 +47,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnvironmentSwapService, EnvironmentSwapService>();
         services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<ConfigUIApiHandler>();
-        services.AddSingleton<ConfigUIStaticHandler>();
+        services.AddSingleton<ConfigUIStaticHandler>(); 
+        services.AddSingleton<ISchemaValidationService, SchemaValidationService>();
+        services.AddSingleton<IAssertionRunnerService, AssertionRunnerService>();
+        // IConfigurationTest implementations are registered by the host app;
+        // we register an empty enumerable as fallback so DI doesn't throw when none exist.
+        // services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigurationTest, NullConfigurationTest>());
 
         var results = new List<ValidationResult>();
         if (!Validator.TryValidateObject(options, new ValidationContext(options), results, true))
@@ -141,4 +148,12 @@ public static class ServiceCollectionExtensions
                 token, LaunchSettingsTokenWriter.EnvironmentVariableName, token);
         }
     }
+
+    // Ensures IEnumerable<IConfigurationTest> resolves even with no user-defined tests.
+    /*private sealed class NullConfigurationTest : IConfigurationTest
+    {
+        public string Name => string.Empty;
+        public Task<AssertionOutcome> RunAsync(IConfiguration config, CancellationToken ct)
+            => Task.FromResult(AssertionOutcome.Pass());
+    }*/
 }

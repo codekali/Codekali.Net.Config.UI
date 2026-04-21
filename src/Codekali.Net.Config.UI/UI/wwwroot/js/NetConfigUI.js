@@ -244,6 +244,7 @@ async function loadEntries() {
       showEditorLoading(false);
       document.getElementById('raw-view').classList.remove('hidden');
    }
+   await validateCurrentFile();
 }
 
 async function refreshFile() {
@@ -728,10 +729,17 @@ function formatRaw() {
 }
 
 async function saveRaw() {
+   // Check schema violations first — block on errors, allow warnings through
+   const r = await api('GET', `/validate?file=${enc(currentFile.fileName)}`);
+   if (r?.success && r.data?.some(v => v.severity === 'error')) {
+      toast('Save blocked: schema validation errors exist. Fix them or disable schema validation.', 'error', 5000);
+      await validateCurrentFile(); // refresh banner
+      return;
+   }
    const content = getRawEditorContent();
-   const r = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
-   if (r.success) toast('Saved ✓', 'success');
-   else toast(r.error, 'error');
+   const result = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
+   if (result.success) toast('Saved ✓', 'success');
+   else toast(result.error, 'error');
 }
 
 // ── Editor mode switching ─────────────────────────────────────────────────
@@ -748,7 +756,7 @@ function setEditorMode(mode) {
 // ── View switching ────────────────────────────────────────────────────────
 function setView(v) {
    currentView = v;
-   ['editor', 'swap', 'diff', 'guide'].forEach(id => {
+   ['editor', 'swap', 'diff', 'guide', 'tests'].forEach(id => {
       document.getElementById('view-' + id).classList.toggle('hidden', id !== v);
       const navEl = document.getElementById('nav-' + id);
       if (navEl) navEl.classList.toggle('active', id === v);
@@ -1231,6 +1239,76 @@ function toggleAuditGroup(id) {
       });
    });
 })();
+
+// ── v1.3: Schema Validation ───────────────────────────────────────────────
+
+async function validateCurrentFile() {
+   if (!currentFile) return;
+   const r = await api('GET', `/validate?file=${enc(currentFile.fileName)}`);
+   const banner = document.getElementById('schema-violations');
+   if (!r || !r.success || !r.data.length) { banner.classList.add('hidden'); banner.innerHTML = ''; return; }
+   const items = r.data.map(v =>
+      `<span style="display:inline-flex;align-items:center;gap:6px;margin:2px 4px;
+            padding:2px 8px;border-radius:4px;font-size:12px;font-family:var(--font);
+            background:${v.severity === 'error' ? 'rgba(248,113,113,.15)' : 'rgba(251,191,36,.15)'};
+            border:1px solid ${v.severity === 'error' ? 'var(--red)' : 'var(--yellow)'};color:var(--text)">
+          <strong style="color:${v.severity === 'error' ? 'var(--red)' : 'var(--yellow)'}">${escHtml(v.keyword)}</strong>
+          <span style="color:var(--accent2)">${escHtml(v.keyPath)}</span>
+          — ${escHtml(v.message)}
+        </span>`
+   ).join('');
+   banner.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:600;color:var(--red);flex-shrink:0">⚠ Schema violations:</span>
+        ${items}
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="document.getElementById('schema-violations').classList.add('hidden')">✕</button>
+    </div>`;
+   banner.classList.remove('hidden');
+}
+
+// Call validateCurrentFile() after loadEntries() completes — add at end of loadEntries:
+// await validateCurrentFile();
+
+// Also call it before saveRaw() writes — block save on errors:
+// (in saveRaw, check violations first)
+
+// ── v1.3: Assertion Runner ────────────────────────────────────────────────
+
+async function runAssertions() {
+   document.getElementById('tests-result').innerHTML =
+      '<div class="loading-center" style="height:80px"><div class="spinner"></div></div>';
+   document.getElementById('tests-no-tests').classList.add('hidden');
+   document.getElementById('tests-summary').textContent = '';
+
+   const r = await api('GET', '/assertions/run');
+   if (!r.success) { toast(r.error, 'error'); return; }
+
+   if (!r.hasTests || !r.data.length) {
+      document.getElementById('tests-result').innerHTML = '';
+      document.getElementById('tests-no-tests').classList.remove('hidden');
+      return;
+   }
+
+   const passed = r.data.filter(t => t.passed).length;
+   const total = r.data.length;
+   const allPass = passed === total;
+   document.getElementById('tests-summary').innerHTML =
+      `<span style="color:${allPass ? 'var(--green)' : 'var(--red)'}">
+            ${passed}/${total} passed
+        </span>`;
+
+   document.getElementById('tests-result').innerHTML = r.data.map(t => `
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;
+            margin-bottom:6px;border-radius:6px;border:1px solid var(--border);
+            background:var(--bg2);border-left:3px solid ${t.passed ? 'var(--green)' : 'var(--red)'}">
+            <span style="font-size:16px;flex-shrink:0">${t.passed ? '✓' : '✕'}</span>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:600;font-size:13px;color:${t.passed ? 'var(--green)' : 'var(--red)'}">${escHtml(t.name)}</div>
+                ${t.description ? `<div style="font-size:12px;color:var(--text2);margin-top:2px">${escHtml(t.description)}</div>` : ''}
+                ${!t.passed && t.failureMessage ? `<div style="font-size:12px;color:var(--red);margin-top:4px;font-family:var(--font)">${escHtml(t.failureMessage)}</div>` : ''}
+            </div>
+            <span style="font-size:11px;color:var(--text2);flex-shrink:0">${t.elapsedMs}ms</span>
+        </div>`).join('');
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function showEditorLoading(show) {

@@ -17,7 +17,9 @@ namespace Codekali.Net.Config.UI.Middleware
         private readonly IAppSettingsService _appSettings;
         private readonly IEnvironmentSwapService _envSwap;
         private readonly IAuditService _audit;
-        private readonly IBackupService _backup;
+        private readonly IBackupService _backup; 
+        private readonly ISchemaValidationService _schemaValidation;
+        private readonly IAssertionRunnerService _assertionRunner;
 
         private static readonly JsonSerializerOptions _readOpts = new()
         {
@@ -32,12 +34,16 @@ namespace Codekali.Net.Config.UI.Middleware
             IAppSettingsService appSettingsService,
             IEnvironmentSwapService environmentSwapService,
             IAuditService auditService,
-            IBackupService backupService)
+            IBackupService backupService,
+            ISchemaValidationService schemaValidationService,
+            IAssertionRunnerService assertionRunnerService)
         {
             _appSettings = appSettingsService;
             _envSwap = environmentSwapService;
             _audit = auditService;
             _backup = backupService;
+            _schemaValidation = schemaValidationService;
+            _assertionRunner = assertionRunnerService;
 
             _fileRoutes = new Dictionary<(string, string), Func<HttpContext, string, Task>>()
             {
@@ -76,6 +82,15 @@ namespace Codekali.Net.Config.UI.Middleware
 
             if (apiPath.Equals("conflicts", StringComparison.OrdinalIgnoreCase) && method == "GET")
             { await HandleConflictsAsync(ctx).ConfigureAwait(false); return; }
+
+            if (apiPath.Equals("validate", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleValidateAsync(ctx).ConfigureAwait(false); return; }
+
+            if (apiPath.Equals("assertions/run", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleAssertionsRunAsync(ctx).ConfigureAwait(false); return; }
+
+            if (apiPath.Equals("schema", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleGetSchemaAsync(ctx).ConfigureAwait(false); return; }
 
             if (apiPath.StartsWith("files/", StringComparison.OrdinalIgnoreCase))
             {
@@ -190,6 +205,42 @@ namespace Codekali.Net.Config.UI.Middleware
             ctx.Response.StatusCode = StatusCodes.Status200OK;
             await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
                 new { success = true, data = timestamps }).ConfigureAwait(false);
+        }
+        
+        // ── v1.3: Schema Validation ───────────────────────────────────────────────
+
+        private async Task HandleValidateAsync(HttpContext ctx)
+        {
+            var fileName = ctx.Request.Query["file"].ToString();
+            if (string.IsNullOrWhiteSpace(fileName))
+            { await BadRequestAsync(ctx, "Missing 'file' query parameter.").ConfigureAwait(false); return; }
+
+            var rawResult = await _appSettings.GetRawJsonAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
+            if (!rawResult.IsSuccess) { await RespondAsync(ctx, rawResult).ConfigureAwait(false); return; }
+
+            var violations = await _schemaValidation.ValidateAsync(rawResult.Value!, ctx.RequestAborted).ConfigureAwait(false);
+            ctx.Response.StatusCode = 200;
+            await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
+                new { success = true, data = violations }).ConfigureAwait(false);
+        }
+
+        private async Task HandleGetSchemaAsync(HttpContext ctx)
+        {
+            var json = _schemaValidation.GetSchemaJson();
+            ctx.Response.StatusCode = 200;
+            await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
+                new { success = true, data = json }).ConfigureAwait(false);
+        }
+
+        // ── v1.3: Assertion Runner ────────────────────────────────────────────────
+
+        private async Task HandleAssertionsRunAsync(HttpContext ctx)
+        {
+            var results = await _assertionRunner.RunAllAsync(ctx.RequestAborted).ConfigureAwait(false);
+            ctx.Response.StatusCode = 200;
+            await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
+                new { success = true, data = results, hasTests = _assertionRunner.HasTests })
+                .ConfigureAwait(false);
         }
 
         // ── File-scoped handlers ──────────────────────────────────────────────
