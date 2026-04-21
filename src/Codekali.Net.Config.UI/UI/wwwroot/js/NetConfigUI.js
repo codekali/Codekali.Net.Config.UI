@@ -1070,8 +1070,8 @@ async function showDiffModal(backupName) {
 
    const { current, backup } = r.data;
    let cur = {}, bak = {};
-   try { cur = flattenJson(JSON.parse(current)); } catch { }
-   try { bak = flattenJson(JSON.parse(backup)); } catch { }
+   try { cur = flattenJson(JSON.parse(stripJsonComments(current))); } catch { }
+   try { bak = flattenJson(JSON.parse(stripJsonComments(backup))); } catch { }
 
    const allKeys = [...new Set([...Object.keys(bak), ...Object.keys(cur)])].sort();
    let rows = '';
@@ -1263,6 +1263,26 @@ function showModal(title, body, onConfirm) {
    document.getElementById('modal-backdrop').classList.remove('hidden');
    document.getElementById('modal-confirm').onclick = async () => { closeModal(); await onConfirm(); };
 }
+
+function stripJsonComments(str) {
+   let result = '';
+   let i = 0;
+   let inString = false;
+   while (i < str.length) {
+      if (!inString && str[i] === '/' && str[i + 1] === '/') {
+         while (i < str.length && str[i] !== '\n') i++;
+      } else if (!inString && str[i] === '/' && str[i + 1] === '*') {
+         i += 2;
+         while (i < str.length && !(str[i] === '*' && str[i + 1] === '/')) i++;
+         i += 2;
+      } else {
+         if (str[i] === '"' && (i === 0 || str[i - 1] !== '\\')) inString = !inString;
+         result += str[i++];
+      }
+   }
+   return result;
+}
+
 function closeModal() { document.getElementById('modal-backdrop').classList.add('hidden'); }
 
 function enc(s) { return encodeURIComponent(s); }
