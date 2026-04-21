@@ -15,15 +15,16 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            6.0.x
+          dotnet-version: '8.0.x'
       
       - name: Restore dependencies
         run: dotnet restore
       
       - name: Build release
         run: dotnet build --configuration Release --no-restore
+      
+      - name: Run tests
+        run: dotnet test --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
       
       - name: Pack NuGet package
         run: dotnet pack Codekali.Net.Config.UI.csproj --configuration Release --output ./nupkg
