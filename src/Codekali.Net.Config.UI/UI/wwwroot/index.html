@@ -22,7 +22,7 @@
 
         <div class="main">
             <aside class="sidebar">
-                <div class="sidebar-header">appsettings files</div>
+                <div class="sidebar-header">appsettings files <button class="btn btn-secondary btn-sm" onclick="loadFileList()" title="Refresh list">↻ Refresh</button></div>
                 <div class="file-list" id="file-list">
                     <div class="loading-center" style="height:120px"><div class="spinner"></div></div>
                 </div>
@@ -39,254 +39,292 @@
                 </nav>
             </aside>
 
-            <div class="content">
-                <!--
-                    Fix #2 — Toolbar visibility.
-                    Both toolbar rows start hidden (class="hidden").
-                    They are shown ONLY by selectFile() — i.e. only after an
-                    appsettings file has been chosen from the sidebar.
-                    setView() never touches the toolbar visibility directly;
-                    when switching away from the editor the toolbar rows remain
-                    in whatever state they were last set to, but the editor panel
-                    itself is hidden so they are invisible anyway.
-                    When setView('editor') is called with no currentFile the rows
-                    stay hidden — the user sees the clean #editor-no-file state.
-                -->
-                <div class="toolbar" id="main-toolbar">
-                    <div class="toolbar-row toolbar-row-1 hidden" id="editor-toolbar-row1">
-                        <span class="toolbar-title" id="toolbar-title"></span>
-                        <div class="toolbar-sep"></div>
-                        <div style="display:flex;gap:8px;align-items:center">
-                            <div class="toggle-group">
-                                <button class="toggle-btn active" id="toggle-tree" onclick="setEditorMode('tree')">Tree</button>
-                                <button class="toggle-btn" id="toggle-raw" onclick="setEditorMode('raw')">Raw JSON</button>
-                            </div>
-                            <div class="search-wrap">
-                                <span class="icon">🔍</span>
-                                <input class="search-input" id="search-input" placeholder="Search keys…" oninput="onSearch()" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="toolbar-row toolbar-row-2 hidden" id="editor-toolbar-row2">
-                        <div style="display:flex;align-items:center;gap:7px;padding:3px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px"
-                             title="When ON: clicking outside a field saves automatically. When OFF: press Enter or Save.">
-                            <span style="font-size:12px;color:var(--text2)">Auto-Save</span>
-                            <button id="blur-save-toggle" aria-checked="true" onclick="toggleAutoSave(this)"
-                                    style="position:relative;width:34px;height:18px;border-radius:9px;background:var(--accent);border:none;cursor:pointer;transition:background .2s;flex-shrink:0;padding:0">
-                                <span style="position:absolute;top:2px;left:16px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .2s;pointer-events:none"></span>
-                            </button>
-                        </div>
-                        <div class="toolbar-sep"></div>
-                        <button class="btn btn-secondary btn-sm" onclick="refreshFile()" title="Re-fetch this file from disk">↻ Refresh</button>
-                        <div class="toolbar-divider"></div>
-                        <button class="btn btn-warn btn-sm" id="backup-btn" onclick="createBackup()" title="Create a timestamped .bak backup">💾 Backup</button>
-                        <button class="btn btn-primary btn-sm" id="add-btn" onclick="showAddForm()">+ Add Key</button>
-                        <span id="save-status" style="font-size:12px;color:var(--green);opacity:0;transition:opacity .3s;font-family:var(--font);margin-left:4px"></span>
-                    </div>
-                </div>
-
-                <!-- Add Key Form -->
-                <div id="add-form" class="hidden" style="padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border)">
-                    <div class="form-row">
-                        <div class="form-field">
-                            <span class="field-label">Key Path (colon-separated)</span>
-                            <input class="form-input" id="add-key" placeholder="e.g. ConnectionStrings:Default" style="width:280px" />
-                        </div>
-                        <div class="form-field">
-                            <span class="field-label">JSON Value</span>
-                            <input class="form-input" id="add-value" placeholder='"value" or 123 or true or {...}' style="width:260px" />
-                        </div>
-                        <button class="btn btn-primary" onclick="submitAdd()">Add</button>
-                        <button class="btn btn-ghost" onclick="hideAddForm()">Cancel</button>
-                    </div>
-                </div>
-
-                <!-- ══════════════════════════════════════════════════════
-                     EDITOR VIEW
-                ══════════════════════════════════════════════════════ -->
-                <div class="panel" id="view-editor">
-
+            <div class="workspace">
+                <div class="content">
                     <!--
-                        Fix #2 — Clean "no file" landing state.
-                        Shown when the Editor nav item is active but no file has
-                        been selected yet. Contains a brief prompt and a link to
-                        the Guide view. No toolbar controls are shown here.
-                    -->
-                    <div id="editor-no-file" class="no-file-state">
-                        <div class="no-file-inner">
-                            <div class="no-file-icon">⚙</div>
-                            <div class="no-file-title">No file selected</div>
-                            <div class="no-file-sub">
-                                Choose an <strong>appsettings</strong> file from the sidebar to begin editing.<br>
-                                See <span class="link-btn" onclick="setView('guide')">📖 Guide</span> for best practices and keyboard shortcuts.
+            Fix #2 — Toolbar visibility.
+            Both toolbar rows start hidden (class="hidden").
+            They are shown ONLY by selectFile() — i.e. only after an
+            appsettings file has been chosen from the sidebar.
+            setView() never touches the toolbar visibility directly;
+            when switching away from the editor the toolbar rows remain
+            in whatever state they were last set to, but the editor panel
+            itself is hidden so they are invisible anyway.
+            When setView('editor') is called with no currentFile the rows
+            stay hidden — the user sees the clean #editor-no-file state.
+        -->
+                    <div class="toolbar" id="main-toolbar">
+                        <div class="toolbar-row toolbar-row-1 hidden" id="editor-toolbar-row1">
+                            <span class="toolbar-title" id="toolbar-title"></span>
+                            <div class="toolbar-sep"></div>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <div class="toggle-group">
+                                    <button class="toggle-btn active" id="toggle-tree" onclick="setEditorMode('tree')">Tree</button>
+                                    <button class="toggle-btn" id="toggle-raw" onclick="setEditorMode('raw')">Raw JSON</button>
+                                </div>
+                                <div class="search-wrap">
+                                    <span class="icon">🔍</span>
+                                    <input class="search-input" id="search-input" placeholder="Search keys…" oninput="onSearch()" />
+                                </div>
                             </div>
-                            <div class="no-file-stats">
-                                <span class="stat-item">⚙ <span class="stat-val" id="ws-files">–</span> files</span>
+                        </div>
+
+                        <div class="toolbar-row toolbar-row-2 hidden" id="editor-toolbar-row2">
+                            <div style="display:flex;align-items:center;gap:7px;padding:3px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px"
+                                 title="When ON: clicking outside a field saves automatically. When OFF: press Enter or Save.">
+                                <span style="font-size:12px;color:var(--text2)">Auto-Save</span>
+                                <button id="blur-save-toggle" aria-checked="true" onclick="toggleAutoSave(this)"
+                                        style="position:relative;width:34px;height:18px;border-radius:9px;background:var(--accent);border:none;cursor:pointer;transition:background .2s;flex-shrink:0;padding:0">
+                                    <span style="position:absolute;top:2px;left:16px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .2s;pointer-events:none"></span>
+                                </button>
+                            </div>
+                            <div class="toolbar-sep"></div>
+                            <button class="btn btn-secondary btn-sm" onclick="refreshFile()" title="Re-fetch this file from disk">↻ Refresh</button>
+                            <div class="toolbar-divider"></div>
+                            <button class="btn btn-warn btn-sm" id="backup-btn" onclick="openRightSidebar()" title="Open backup & audit panel">Audits and Backups</button>
+                            <button class="btn btn-primary btn-sm" id="add-btn" onclick="showAddForm()">+ Add Key</button>
+                            <span id="save-status" style="font-size:12px;color:var(--green);opacity:0;transition:opacity .3s;font-family:var(--font);margin-left:4px"></span>
+                        </div>
+                    </div>
+
+                    <!-- Add Key Form -->
+                    <div id="add-form" class="hidden" style="padding:10px 16px;background:var(--bg2);border-bottom:1px solid var(--border)">    
+                        <div class="form-row">
+                            <div class="form-field">
+                                <span class="field-label">Key Path (colon-separated)</span>
+                                <input class="form-input" id="add-key" placeholder="e.g. ConnectionStrings:Default" style="width:280px" />
+                            </div>
+                            <div class="form-field">
+                                <span class="field-label">JSON Value</span>
+                                <input class="form-input" id="add-value" placeholder='"value" or 123 or true or {...}' style="width:260px" />
+                            </div>
+                            <button class="btn btn-primary" onclick="submitAdd()">Add</button>
+                            <button class="btn btn-ghost" onclick="hideAddForm()">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════════
+             EDITOR VIEW
+        ══════════════════════════════════════════════════════ -->
+                    <div class="panel" id="view-editor">
+
+                        <!--
+                Fix #2 — Clean "no file" landing state.
+                Shown when the Editor nav item is active but no file has
+                been selected yet. Contains a brief prompt and a link to
+                the Guide view. No toolbar controls are shown here.
+            -->
+                        <div id="editor-no-file" class="no-file-state">
+                            <div class="no-file-inner">
+                                <div class="no-file-icon">⚙</div>
+                                <div class="no-file-title">No file selected</div>
+                                <div class="no-file-sub">
+                                    Choose an <strong>appsettings</strong> file from the sidebar to begin editing.<br>
+                                    See <span class="link-btn" onclick="setView('guide')">📖 Guide</span> for best practices and keyboard shortcuts.
+                                </div>
+                                <div class="no-file-stats">
+                                    <span class="stat-item">⚙ <span class="stat-val" id="ws-files">–</span> files</span>
+                                    <span class="stat-sep">·</span>
+                                    <span class="stat-item">🌍 <span class="stat-val" id="ws-envs">–</span> environments</span>
+                                    <span class="stat-sep">·</span>
+                                    <span class="stat-item">🕐 <span class="stat-val" id="ws-modified">–</span></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Loading spinner — shown while fetching file content -->
+                        <div id="editor-loading" style="display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;height:100%">
+                            <div class="spinner"></div>
+                            <span class="text-muted" style="font-size:13px">Loading…</span>
+                        </div>
+
+                        <!-- Tree view -->
+                        <div id="tree-view" class="tree hidden"></div>
+
+                        <!-- Raw / Monaco view -->
+                        <div id="raw-view" class="raw-editor-wrap hidden">
+                            <div class="raw-editor-actions">
+                                <span class="text-muted" style="font-size:12px;font-family:var(--font)">Edit raw JSON — VS Code engine</span>
+                                <span id="monaco-status" class="monaco-status-badge"></span>
+                                <div style="flex:1"></div>
+                                <button class="btn btn-secondary btn-sm" onclick="formatRaw()" title="Format JSON (Shift+Alt+F)">Format</button>
+                                <button class="btn btn-primary  btn-sm" onclick="saveRaw()" title="Save (Ctrl+S)">💾 Save</button>
+                            </div>
+                            <div id="monaco-editor-container" class="monaco-editor-container"></div>
+                            <textarea class="raw-editor hidden" id="raw-editor-ta" spellcheck="false"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════════
+             GUIDE VIEW  — dedicated, always accessible
+        ══════════════════════════════════════════════════════ -->
+                    <div class="panel hidden" id="view-guide">
+                        <div class="welcome-wrap">
+
+                            <div class="welcome-stats-bar">
+                                <span class="stat-item">⚙ <span class="stat-val" id="gs-files">–</span> files detected</span>
                                 <span class="stat-sep">·</span>
-                                <span class="stat-item">🌍 <span class="stat-val" id="ws-envs">–</span> environments</span>
+                                <span class="stat-item">🌍 <span class="stat-val" id="gs-envs">–</span> environments</span>
                                 <span class="stat-sep">·</span>
-                                <span class="stat-item">🕐 <span class="stat-val" id="ws-modified">–</span></span>
+                                <span class="stat-item">🕐 last modified <span class="stat-val" id="gs-modified">–</span></span>
+                                <span style="flex:1"></span>
+                                <span style="opacity:.5;font-size:11px">Codekali.Net.Config.UI</span>
+                            </div>
+
+                            <div class="welcome-grid">
+
+                                <div class="welcome-card">
+                                    <div class="welcome-card-title"><span class="card-icon">⚡</span> Quick Actions</div>
+                                    <button class="welcome-action-btn" onclick="loadFileList()">
+                                        <span class="wa-icon">↻</span>
+                                        <span>Refresh file list<span class="wa-desc">Re-scan for appsettings*.json files</span></span>
+                                    </button>
+                                    <button class="welcome-action-btn" onclick="setView('diff')">
+                                        <span class="wa-icon">⊞</span>
+                                        <span>Compare environments<span class="wa-desc">Diff any two appsettings files side by side</span></span>
+                                    </button>
+                                    <button class="welcome-action-btn" onclick="setView('swap')">
+                                        <span class="wa-icon">⇄</span>
+                                        <span>Move / Copy keys<span class="wa-desc">Migrate keys between environment files</span></span>
+                                    </button>
+                                </div>
+
+                                <div class="welcome-card">
+                                    <div class="welcome-card-title"><span class="card-icon">⌨</span> Keyboard Guide</div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Edit a value</span><span class="kbd">Double-click</span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Save edit</span><span class="kbd">Enter</span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Cancel edit</span><span class="kbd">Esc</span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Expand / collapse</span><span class="kbd">Click row</span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Search keys</span><span class="kbd">Toolbar search</span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Switch view</span><span><span class="kbd">Tree</span> / <span class="kbd">Raw JSON</span></span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Format raw JSON</span><span><span class="kbd">Shift</span>+<span class="kbd">Alt</span>+<span class="kbd">F</span></span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Save raw JSON</span><span><span class="kbd">Ctrl</span>+<span class="kbd">S</span></span></div>
+                                    <div class="welcome-shortcut-row"><span class="sk-label">Manual backup</span><span class="kbd">💾 Backup</span></div>
+                                </div>
+
+                                <div class="welcome-card">
+                                    <div class="welcome-card-title"><span class="card-icon">✦</span> Best Practices</div>
+                                    <div class="welcome-practice-row">
+                                        <span class="bp-icon bp-warn">⚠</span>
+                                        <span>Use <strong>IOptionsSnapshot&lt;T&gt;</strong> or <strong>IOptionsMonitor&lt;T&gt;</strong> — not plain <strong>IOptions&lt;T&gt;</strong> — so config changes take effect without a restart.</span>
+                                    </div>
+                                    <div class="welcome-practice-row">
+                                        <span class="bp-icon bp-warn">⚠</span>
+                                        <span>Never commit secrets to source control. Keep passwords, tokens, and API keys in environment-specific files excluded via <strong>.gitignore</strong>.</span>
+                                    </div>
+                                    <div class="welcome-practice-row">
+                                        <span class="bp-icon bp-good">✓</span>
+                                        <span>Use <strong>appsettings.{Environment}.json</strong> for overrides. Keep <strong>appsettings.json</strong> as the base with safe defaults only.</span>
+                                    </div>
+                                    <div class="welcome-practice-row">
+                                        <span class="bp-icon bp-good">✓</span>
+                                        <span>Use colon-separated paths — e.g. <strong>Logging:LogLevel:Default</strong> — when adding or editing in tree view.</span>
+                                    </div>
+                                    <div class="welcome-practice-row">
+                                        <span class="bp-icon bp-good">✓</span>
+                                        <span>Create a <strong>💾 Backup</strong> before bulk changes. Backups are timestamped <strong>.bak</strong> files stored alongside your appsettings files.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="welcome-footer">Codekali.Net.Config.UI · github.com/Codekali</div>
+                        </div>
+                    </div>
+
+                    <!-- ══════════════════════════════════════════════════════
+             SWAP VIEW
+        ══════════════════════════════════════════════════════ -->
+                    <div class="panel hidden" id="view-swap">
+                        <div class="swap-panel">
+                            <div class="card">
+                                <div class="card-title">Move or Copy configuration keys between environment files</div>
+                                <div class="diff-controls">
+                                    <div class="form-field">
+                                        <span class="field-label">Source file</span>
+                                        <select class="select-input" id="swap-source" onchange="loadSwapKeys()"></select>
+                                    </div>
+                                    <div class="form-field">
+                                        <span class="field-label">Operation</span>
+                                        <select class="select-input" id="swap-op">
+                                            <option value="Copy">Copy (keep in source)</option>
+                                            <option value="Move">Move (remove from source)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-field">
+                                        <span class="field-label">Target file</span>
+                                        <select class="select-input" id="swap-target"></select>
+                                    </div>
+                                </div>
+                                <div class="field-label" style="margin-bottom:6px">Select keys to move/copy</div>
+                                <div class="key-checkbox-list" id="swap-keys">
+                                    <span class="text-muted" style="font-size:12px;padding:8px">Select a source file to see keys</span>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                                    <input type="checkbox" id="swap-overwrite" style="accent-color:var(--accent)"> Overwrite existing keys in target
+                                </label>
+                                <div style="flex:1"></div>
+                                <button class="btn btn-primary" onclick="executeSwap()">Execute ⇄</button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Loading spinner — shown while fetching file content -->
-                    <div id="editor-loading" style="display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;height:100%">
-                        <div class="spinner"></div>
-                        <span class="text-muted" style="font-size:13px">Loading…</span>
-                    </div>
-
-                    <!-- Tree view -->
-                    <div id="tree-view" class="tree hidden"></div>
-
-                    <!-- Raw / Monaco view -->
-                    <div id="raw-view" class="raw-editor-wrap hidden">
-                        <div class="raw-editor-actions">
-                            <span class="text-muted" style="font-size:12px;font-family:var(--font)">Edit raw JSON — VS Code engine</span>
-                            <span id="monaco-status" class="monaco-status-badge"></span>
-                            <div style="flex:1"></div>
-                            <button class="btn btn-secondary btn-sm" onclick="formatRaw()" title="Format JSON (Shift+Alt+F)">Format</button>
-                            <button class="btn btn-primary  btn-sm" onclick="saveRaw()" title="Save (Ctrl+S)">💾 Save</button>
+                    <!-- ══════════════════════════════════════════════════════
+             DIFF VIEW
+        ══════════════════════════════════════════════════════ -->
+                    <div class="panel hidden" id="view-diff">
+                        <div class="diff-controls">
+                            <div class="form-field">
+                                <span class="field-label">Source file</span>
+                                <select class="select-input" id="diff-source"></select>
+                            </div>
+                            <div class="form-field">
+                                <span class="field-label">Target file</span>
+                                <select class="select-input" id="diff-target"></select>
+                            </div>
+                            <button class="btn btn-primary" onclick="runDiff()">Compare ⊞</button>
                         </div>
-                        <div id="monaco-editor-container" class="monaco-editor-container"></div>
-                        <textarea class="raw-editor hidden" id="raw-editor-ta" spellcheck="false"></textarea>
+                        <div id="diff-result"></div>
                     </div>
+
                 </div>
 
-                <!-- ══════════════════════════════════════════════════════
-                     GUIDE VIEW  — dedicated, always accessible
-                ══════════════════════════════════════════════════════ -->
-                <div class="panel hidden" id="view-guide">
-                    <div class="welcome-wrap">
-
-                        <div class="welcome-stats-bar">
-                            <span class="stat-item">⚙ <span class="stat-val" id="gs-files">–</span> files detected</span>
-                            <span class="stat-sep">·</span>
-                            <span class="stat-item">🌍 <span class="stat-val" id="gs-envs">–</span> environments</span>
-                            <span class="stat-sep">·</span>
-                            <span class="stat-item">🕐 last modified <span class="stat-val" id="gs-modified">–</span></span>
-                            <span style="flex:1"></span>
-                            <span style="opacity:.5;font-size:11px">Codekali.Net.Config.UI</span>
+                <!-- RIGHT SIDEBAR -->
+                <aside class="right-sidebar" id="right-sidebar" style="display:none">
+                    <div class="right-sidebar-resizer" id="rs-resizer"></div>
+                    <div class="right-sidebar-inner">
+                        <div class="right-sidebar-header">
+                            <span id="rs-file-label" class="rs-file-label">—</span>
+                            <button class="btn btn-ghost btn-sm" onclick="closeRightSidebar()" title="Close">✕</button>
+                        </div>
+                        <div class="rs-tabs">
+                            <button class="rs-tab active" id="rs-tab-backups" onclick="setRsTab('backups')">💾 Backups</button>
+                            <button class="rs-tab" id="rs-tab-audit" onclick="setRsTab('audit')">📋 Audit</button>
                         </div>
 
-                        <div class="welcome-grid">
-
-                            <div class="welcome-card">
-                                <div class="welcome-card-title"><span class="card-icon">⚡</span> Quick Actions</div>
-                                <button class="welcome-action-btn" onclick="loadFileList()">
-                                    <span class="wa-icon">↻</span>
-                                    <span>Refresh file list<span class="wa-desc">Re-scan for appsettings*.json files</span></span>
-                                </button>
-                                <button class="welcome-action-btn" onclick="setView('diff')">
-                                    <span class="wa-icon">⊞</span>
-                                    <span>Compare environments<span class="wa-desc">Diff any two appsettings files side by side</span></span>
-                                </button>
-                                <button class="welcome-action-btn" onclick="setView('swap')">
-                                    <span class="wa-icon">⇄</span>
-                                    <span>Move / Copy keys<span class="wa-desc">Migrate keys between environment files</span></span>
-                                </button>
+                        <!-- BACKUPS TAB -->
+                        <div class="rs-panel" id="rs-panel-backups">
+                            <div class="rs-actions">
+                                <button class="btn btn-warn btn-sm" onclick="promptNamedBackup()">+ New Backup</button>
+                                <button class="btn btn-ghost btn-sm" onclick="loadRightSidebar()">↻</button>
                             </div>
-
-                            <div class="welcome-card">
-                                <div class="welcome-card-title"><span class="card-icon">⌨</span> Keyboard Guide</div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Edit a value</span><span class="kbd">Double-click</span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Save edit</span><span class="kbd">Enter</span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Cancel edit</span><span class="kbd">Esc</span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Expand / collapse</span><span class="kbd">Click row</span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Search keys</span><span class="kbd">Toolbar search</span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Switch view</span><span><span class="kbd">Tree</span> / <span class="kbd">Raw JSON</span></span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Format raw JSON</span><span><span class="kbd">Shift</span>+<span class="kbd">Alt</span>+<span class="kbd">F</span></span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Save raw JSON</span><span><span class="kbd">Ctrl</span>+<span class="kbd">S</span></span></div>
-                                <div class="welcome-shortcut-row"><span class="sk-label">Manual backup</span><span class="kbd">💾 Backup</span></div>
-                            </div>
-
-                            <div class="welcome-card">
-                                <div class="welcome-card-title"><span class="card-icon">✦</span> Best Practices</div>
-                                <div class="welcome-practice-row">
-                                    <span class="bp-icon bp-warn">⚠</span>
-                                    <span>Use <strong>IOptionsSnapshot&lt;T&gt;</strong> or <strong>IOptionsMonitor&lt;T&gt;</strong> — not plain <strong>IOptions&lt;T&gt;</strong> — so config changes take effect without a restart.</span>
-                                </div>
-                                <div class="welcome-practice-row">
-                                    <span class="bp-icon bp-warn">⚠</span>
-                                    <span>Never commit secrets to source control. Keep passwords, tokens, and API keys in environment-specific files excluded via <strong>.gitignore</strong>.</span>
-                                </div>
-                                <div class="welcome-practice-row">
-                                    <span class="bp-icon bp-good">✓</span>
-                                    <span>Use <strong>appsettings.{Environment}.json</strong> for overrides. Keep <strong>appsettings.json</strong> as the base with safe defaults only.</span>
-                                </div>
-                                <div class="welcome-practice-row">
-                                    <span class="bp-icon bp-good">✓</span>
-                                    <span>Use colon-separated paths — e.g. <strong>Logging:LogLevel:Default</strong> — when adding or editing in tree view.</span>
-                                </div>
-                                <div class="welcome-practice-row">
-                                    <span class="bp-icon bp-good">✓</span>
-                                    <span>Create a <strong>💾 Backup</strong> before bulk changes. Backups are timestamped <strong>.bak</strong> files stored alongside your appsettings files.</span>
-                                </div>
+                            <div id="backup-list" class="rs-list">
+                                <div class="rs-empty">No backups yet.</div>
                             </div>
                         </div>
 
-                        <div class="welcome-footer">Codekali.Net.Config.UI · github.com/Codekali</div>
-                    </div>
-                </div>
-
-                <!-- ══════════════════════════════════════════════════════
-                     SWAP VIEW
-                ══════════════════════════════════════════════════════ -->
-                <div class="panel hidden" id="view-swap">
-                    <div class="swap-panel">
-                        <div class="card">
-                            <div class="card-title">Move or Copy configuration keys between environment files</div>
-                            <div class="diff-controls">
-                                <div class="form-field">
-                                    <span class="field-label">Source file</span>
-                                    <select class="select-input" id="swap-source" onchange="loadSwapKeys()"></select>
-                                </div>
-                                <div class="form-field">
-                                    <span class="field-label">Operation</span>
-                                    <select class="select-input" id="swap-op">
-                                        <option value="Copy">Copy (keep in source)</option>
-                                        <option value="Move">Move (remove from source)</option>
-                                    </select>
-                                </div>
-                                <div class="form-field">
-                                    <span class="field-label">Target file</span>
-                                    <select class="select-input" id="swap-target"></select>
-                                </div>
+                        <!-- AUDIT TAB -->
+                        <div class="rs-panel hidden" id="rs-panel-audit">
+                            <div class="rs-actions">
+                                <button class="btn btn-ghost btn-sm" onclick="loadAuditLog()">↻ Refresh</button>
                             </div>
-                            <div class="field-label" style="margin-bottom:6px">Select keys to move/copy</div>
-                            <div class="key-checkbox-list" id="swap-keys">
-                                <span class="text-muted" style="font-size:12px;padding:8px">Select a source file to see keys</span>
+                            <div id="audit-list" class="rs-list">
+                                <div class="rs-empty">Audit logging is disabled.<br>Enable it via <code>options.EnableAuditLogging = true</code>.</div>
                             </div>
-                        </div>
-                        <div style="display:flex;gap:8px;align-items:center">
-                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-                                <input type="checkbox" id="swap-overwrite" style="accent-color:var(--accent)"> Overwrite existing keys in target
-                            </label>
-                            <div style="flex:1"></div>
-                            <button class="btn btn-primary" onclick="executeSwap()">Execute ⇄</button>
                         </div>
                     </div>
-                </div>
-
-                <!-- ══════════════════════════════════════════════════════
-                     DIFF VIEW
-                ══════════════════════════════════════════════════════ -->
-                <div class="panel hidden" id="view-diff">
-                    <div class="diff-controls">
-                        <div class="form-field">
-                            <span class="field-label">Source file</span>
-                            <select class="select-input" id="diff-source"></select>
-                        </div>
-                        <div class="form-field">
-                            <span class="field-label">Target file</span>
-                            <select class="select-input" id="diff-target"></select>
-                        </div>
-                        <button class="btn btn-primary" onclick="runDiff()">Compare ⊞</button>
-                    </div>
-                    <div id="diff-result"></div>
-                </div>
-
+                </aside>
             </div>
         </div>
     </div>
@@ -298,7 +336,7 @@
             <div class="modal-title" id="modal-title"></div>
             <div class="modal-body" id="modal-body"></div>
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-secondary" id="modal-cancel" onclick="closeModal()">Cancel</button>
                 <button class="btn btn-danger" id="modal-confirm">Confirm</button>
             </div>
         </div>
@@ -307,6 +345,7 @@
     <script>
         window.CONFIG_UI_API_BASE = '__CONFIG_UI_PATH_PREFIX__/api';
         window.READONLY = '__CONFIG_UI_READONLY__' === 'true';
+        window.AUDIT_ENABLED = '__CONFIG_UI_AUDIT_ENABLED__' === 'true';
     </script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs/loader.js"></script>
     <script>

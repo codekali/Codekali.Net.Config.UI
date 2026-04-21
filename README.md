@@ -37,7 +37,6 @@ builder.Services.AddConfigUI();
 ```
 
 ### 3. Activate middleware
-
 ```csharp
 app.UseConfigUI();
 ```
@@ -45,7 +44,7 @@ app.UseConfigUI();
 ### 4. Open your browser
 
 ```
-https://localhost:5001/config-ui
+https://localhost:{PORT-NO}/config-ui
 ```
 
 ---
@@ -55,7 +54,7 @@ https://localhost:5001/config-ui
 ```csharp
 builder.Services.AddConfigUI(options =>
 {
-    options.PathPrefix            = "/config-ui";
+    options.PathPrefix            = "/config-ui";            // Configurable, defaults to "/config-ui"
     options.AccessToken           = "your-secret-token";     // simple token auth
     options.AuthorizationPolicy   = "ConfigUIAccess";         // or ASP.NET Core policy
     options.AllowedEnvironments   = ["Development","Staging"];
@@ -72,7 +71,7 @@ builder.Services.AddConfigUI(options =>
 builder.Services.AddAuthorization(o =>
     o.AddPolicy("ConfigUIAccess", p => p.RequireRole("Admin")));
 
-app.UseConfigUI(options => options.AuthorizationPolicy = "ConfigUIAccess");
+app.UseConfigUI();
 ```
 
 ### Auto token generation
@@ -145,6 +144,18 @@ dotnet run
 |------------------|------------------------------------|
 | `net8.0`         | Full ASP.NET Core FrameworkRef     |
 | `netstandard2.1` | Works with any compatible host     |
+
+---
+
+## 📝 Version History
+
+### v1.1.0 ✨ (Latest)
+- ✨ **Enhanced feature set** — refined UI/UX for config management
+- 🔧 **Improved stability** — better error handling and edge case coverage
+- 📚 **Better documentation** — clearer configuration and usage examples
+
+### v1.0.0
+- Initial release with core configuration UI features
 
 ---
 

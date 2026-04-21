@@ -20,6 +20,7 @@ namespace Codekali.Net.Config.UI.Middleware
             // Inject the path prefix so the JS knows where to call the API
             html = html.Replace("__CONFIG_UI_PATH_PREFIX__", _options.PathPrefix);
             html = html.Replace("__CONFIG_UI_READONLY__", _options.ReadOnly.ToString().ToLower());
+            html = html.Replace("__CONFIG_UI_AUDIT_ENABLED__", _options.EnableAuditLogging.ToString().ToLower());
 
             ctx.Response.ContentType = "text/html; charset=utf-8";
             await ctx.Response.WriteAsync(html, ctx.RequestAborted).ConfigureAwait(false);

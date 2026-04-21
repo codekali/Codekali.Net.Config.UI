@@ -18,12 +18,20 @@ let _monacoModels = {};
 let _monacoFallback = false;
 let _monacoInitPromise = null;
 
+// ── Right Sidebar ─────────────────────────────────────────────────────────
+let _rsTab = 'backups';
+let _rsResizing = false;
+
 // ── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
    if (window.READONLY) {
       document.getElementById('readonly-badge').classList.remove('hidden');
       document.getElementById('add-btn').disabled = true;
       document.getElementById('backup-btn').disabled = true;
+   }
+   if (!window.AUDIT_ENABLED) {
+      document.getElementById('rs-tab-audit').style.display = 'none';
+      document.getElementById('rs-panel-audit').classList.add('hidden');
    }
    await loadFileList();
 });
@@ -49,11 +57,7 @@ async function loadFileList() {
    startHotReloadPolling();
 
    renderFileList();
-   // Fix #1 — repopulate only the diff selects on reload; the swap selects are
-   // populated separately so that a running swap operation is not disturbed.
    populateDiffSelects();
-   // Only populate swap selects if they have never been populated (first load).
-   // After executeSwap() completes we call refreshSwapKeysOnly() instead.
    if (!_swapSelectsPopulated) {
       populateSwapSelects();
       _swapSelectsPopulated = true;
@@ -62,16 +66,13 @@ async function loadFileList() {
 }
 
 // ── Hot reload detection ──────────────────────────────────────────────────
-// Polls the server every 3s for file modification timestamps.
-// Shows a dismissible banner when an external change is detected.
-
 let _lastKnownTimestamps = {};
 let _hotReloadInterval = null;
 let _hotReloadDismissed = false;
 
 function startHotReloadPolling() {
    if (_hotReloadInterval) return;
-   _hotReloadInterval = setInterval(checkHotReload, 3000);
+   _hotReloadInterval = setInterval(checkHotReload, 1000000);
 }
 
 function stopHotReloadPolling() {
@@ -90,16 +91,13 @@ async function checkHotReload() {
          _lastKnownTimestamps[name] !== ts
       ).map(([name]) => name);
 
-      // Update baseline
       _lastKnownTimestamps = { ...r.data };
 
       if (changed.length === 0) return;
 
-      // Only show banner if we haven't already shown one for this change
       if (!_hotReloadDismissed)
          showHotReloadBanner(changed);
 
-      // If the changed file is the one currently open, auto-reload tree
       if (changed.includes(currentFile?.fileName))
          await loadEntries();
 
@@ -107,7 +105,6 @@ async function checkHotReload() {
 }
 
 function showHotReloadBanner(changedFiles) {
-   // Remove any existing banner first
    document.getElementById('hot-reload-banner')?.remove();
 
    const banner = document.createElement('div');
@@ -118,22 +115,18 @@ function showHotReloadBanner(changedFiles) {
       <button class="btn btn-ghost btn-sm" onclick="dismissHotReloadBanner()" style="margin-left:auto">✕ Dismiss</button>
    `;
 
-   // Insert above the tree/raw view, below the toolbar
    const panel = document.getElementById('view-editor');
    if (panel) panel.insertAdjacentElement('afterbegin', banner);
 
-   // Auto-dismiss after 8s
    setTimeout(dismissHotReloadBanner, 8000);
 }
 
 function dismissHotReloadBanner() {
    document.getElementById('hot-reload-banner')?.remove();
    _hotReloadDismissed = true;
-   // Reset dismissed flag after 30s so next external change shows again
    setTimeout(() => { _hotReloadDismissed = false; }, 30000);
 }
 
-// Tracks whether the swap <select> elements have been populated at least once.
 let _swapSelectsPopulated = false;
 
 function updateWelcomeStats() {
@@ -144,11 +137,9 @@ function updateWelcomeStats() {
       ? `${sorted[0].fileName} · ${timeAgo(sorted[0].lastModified)}`
       : '–';
 
-   // #editor-no-file stats
    _setText('ws-files', count);
    _setText('ws-envs', envs);
    _setText('ws-modified', modText);
-   // #view-guide stats
    _setText('gs-files', count);
    _setText('gs-envs', envs);
    _setText('gs-modified', modText);
@@ -213,22 +204,22 @@ async function selectFile(fileName) {
 
    renderFileList();
 
-   // Fix #2 — toolbar rows are revealed HERE (only after a file is selected)
-   // and are hidden again by hideToolbar() if the user deselects / clears.
    document.getElementById('editor-toolbar-row1').classList.remove('hidden');
    document.getElementById('editor-toolbar-row2').classList.remove('hidden');
    document.getElementById('toolbar-title').innerHTML =
       `<strong>${escHtml(fileName)}</strong> <span class="text-muted monospace" style="font-size:11px">— ${escHtml(currentFile.environment)}</span>`;
 
-   // Hide the "no file" landing state and show the content area
    document.getElementById('editor-no-file').classList.add('hidden');
 
    setView('editor');
    await loadEntries();
+
+   if (document.getElementById('right-sidebar').style.display !== 'none') {
+      document.getElementById('rs-file-label').textContent = fileName;
+      loadRightSidebar();
+   }
 }
 
-// Hides toolbar rows and restores the "no file" landing state.
-// Called when there is no selected file and the editor view is active.
 function _showNoFileState() {
    document.getElementById('editor-toolbar-row1').classList.add('hidden');
    document.getElementById('editor-toolbar-row2').classList.add('hidden');
@@ -289,7 +280,6 @@ function renderNode(node, depth, parentPath) {
    const isExpanded = expandedPaths.has(fullPath);
    const isRevealed = revealedPaths.has(fullPath);
 
-   // ── Value display ──────────────────────────────────────────────────────
    let valueHtml = '';
    if (isObj) {
       const count = node.children?.length ?? 0;
@@ -307,7 +297,6 @@ function renderNode(node, depth, parentPath) {
       } else if (rawVal === null || rawVal === undefined || rawVal === 'null') {
          displayVal = 'null';
       } else if (node.valueType === 'string' || node.valueType === 'arrayItem') {
-         // Strip surrounding quotes for display; keep null as-is.
          displayVal = (rawVal.startsWith('"') && rawVal.endsWith('"'))
             ? rawVal.slice(1, -1) : rawVal;
       } else {
@@ -323,24 +312,20 @@ function renderNode(node, depth, parentPath) {
       }
    }
 
-   // ── Expand toggle ──────────────────────────────────────────────────────
    const toggleHtml = isExpandable
       ? `<span class="tree-toggle" onclick="toggleExpand('${escAttr(fullPath)}',event)">${isExpanded ? '▾' : '▸'}</span>`
       : `<span class="tree-toggle"></span>`;
 
    const rowClick = isExpandable ? `onclick="toggleExpand('${escAttr(fullPath)}',event)"` : '';
 
-   // ── Actions ────────────────────────────────────────────────────────────
    let actions = '';
    if (!window.READONLY) {
       if (isArr) {
-         // Arrays: append-item button + delete whole array
          actions = `<span class="row-actions">
             <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)" title="Append item">+ item</button>
             <button class="btn btn-danger btn-sm"    onclick="confirmDelete('${escAttr(fullPath)}',event)" title="Delete array">✕</button>
          </span>`;
       } else if (isArrItem) {
-         // Array items: delete this specific item by index
          const parentArr = parentPath;
          const idx = node.arrayIndex ?? parseInt(node.key, 10);
          actions = `<span class="row-actions">
@@ -353,18 +338,14 @@ function renderNode(node, depth, parentPath) {
       }
    }
 
-   // ── Children ───────────────────────────────────────────────────────────
    let childHtml = '';
    if (isExpanded && node.children?.length) {
       if (isArr) {
-         // Render array items — pass fullPath as the parentPath so
-         // each item's path becomes e.g. CorsSettings:AllowedOrigins:0
          childHtml = `<div>${renderArrayItems(node.children, depth + 1, fullPath)}</div>`;
       } else {
          childHtml = `<div>${renderNodes(node.children, depth + 1, fullPath)}</div>`;
       }
    } else if (isArr && isExpanded && (!node.children || node.children.length === 0)) {
-      // Empty array — show affordance to add first item
       if (!window.READONLY) {
          childHtml = `<div style="padding-left:${8 + (depth + 1) * 20}px;padding-top:4px">
             <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)">+ Add first item</button>
@@ -372,7 +353,6 @@ function renderNode(node, depth, parentPath) {
       }
    }
 
-   // ── Double-click to edit (not for arrays, not for array item objects) ──
    const canEdit = !window.READONLY && !isArr && !(isObj && isArrItem);
    const dblClick = canEdit ? `ondblclick="startEdit('${escAttr(fullPath)}',${isObj || isArrItem && node.valueType === 'object'},event)"` : '';
 
@@ -389,11 +369,8 @@ function renderNode(node, depth, parentPath) {
           </div>`;
 }
 
-// Renders array items — key is the numeric index, parentPath is the array's path.
 function renderArrayItems(items, depth, arrayPath) {
    return items.map(item => {
-      // For array items the "key" is the index number.
-      // We override parentPath so fullPath = arrayPath:0, arrayPath:1 etc.
       return renderNode(item, depth, arrayPath);
    }).join('');
 }
@@ -465,7 +442,7 @@ function openInlineEditor(slot, fullPath) {
    } else {
       const raw = entry?.rawValue ?? '';
       if (raw === 'null' || raw === null || raw === undefined) {
-         prefill = '';   // empty input = user can type a new value; null shown as placeholder
+         prefill = '';
       } else if ((entry?.valueType === 'string' || entry?.valueType === 'arrayItem')
          && raw.startsWith('"') && raw.endsWith('"')) {
          prefill = raw.slice(1, -1);
@@ -477,7 +454,7 @@ function openInlineEditor(slot, fullPath) {
    const indentPx = 8 + (fullPath.split(':').length - 1) * 20;
    const isMultiline = prefill.includes('\n') || prefill.length > 80;
    slot.innerHTML = `
-      <div class="inline-editor" style="margin:2px 8px 4px ${indentPx}px;flex-wrap:wrap">
+      <div class="inline-editor" tabindex="-1" style="margin:2px 8px 4px ${indentPx}px;flex-wrap:wrap">
         <span class="tree-key monospace" style="font-size:11px;flex-shrink:0;margin-right:4px;color:var(--accent2);width:100%;margin-bottom:4px">${escHtml(fullPath)}</span>
         ${isMultiline
          ? `<textarea class="inline-input" id="${inputId}" rows="3"
@@ -487,23 +464,38 @@ function openInlineEditor(slot, fullPath) {
                placeholder="${entry?.valueType === 'null' ? 'null' : ''}"
                onkeydown="handleEditKey(event,'${escAttr(fullPath)}')" />`
       }
-        <button class="btn btn-primary btn-sm" onclick="submitEdit('${escAttr(fullPath)}')">Save</button>
+        <button class="btn btn-primary btn-sm" onclick="_actionTaken=true;submitEdit('${escAttr(fullPath)}')">Save</button>
         <button class="btn btn-ghost btn-sm"   onclick="cancelEdit()">✕</button>
       </div>`;
    slot.classList.remove('hidden');
    const inp = document.getElementById(inputId);
    if (inp) {
       inp.focus(); inp.select();
-      inp.addEventListener('blur', () => {
-         const capturedValue = inp.value;
+      let _actionTaken = false;
+      inp.addEventListener('keydown', e => {
+         if (e.key === 'Enter' || e.key === 'Escape') _actionTaken = true;
+      });
+      inp.parentElement.parentElement.addEventListener('focusout', (event) => {
+         const container = event.currentTarget;
+         const newFocus = event.relatedTarget;
+
+         // If focus moved to the container itself OR something inside it, do nothing
+         if (newFocus && (container === newFocus || container.contains(newFocus))) {
+            return;
+         }
+
+         // Your existing logic...
          setTimeout(() => {
-            const active = document.activeElement;
-            const editor = slot.querySelector('.inline-editor');
-            if (editor && !editor.contains(active)) {
-               if (autoSaveOnBlur) { showSaveStatus(); submitEditWithValue(fullPath, capturedValue); }
-               else cancelEdit();
+            const capturedValue = inp.value;
+            if (_actionTaken) return;
+
+            if (capturedValue !== prefill && autoSaveOnBlur) {
+               showSaveStatus();
+               submitEditWithValue(fullPath, capturedValue);
+            } else {
+               cancelEdit();
             }
-         }, 120);
+         }, 100);
       });
    }
 }
@@ -513,7 +505,6 @@ function handleEditKey(e, fullPath) {
    if (e.key === 'Escape') cancelEdit();
 }
 
-// For textarea editors: Enter adds a newline (normal), Ctrl+Enter saves.
 function handleEditKeyTextarea(e, fullPath) {
    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { showSaveStatus(); submitEdit(fullPath); }
    if (e.key === 'Escape') cancelEdit();
@@ -530,12 +521,10 @@ async function submitEditWithValue(fullPath, rawValue) {
    const entry = findEntry(currentEntries, fullPath);
    const isObj = entry?.valueType === 'object';
    let jsonValue = rawValue;
-   // Normalise the value based on its current type.
    if (!isObj) {
       if (jsonValue === '' || jsonValue.toLowerCase() === 'null') {
-         jsonValue = 'null';   // explicit null
+         jsonValue = 'null';
       } else if (entry?.valueType === 'string' || entry?.valueType === 'arrayItem') {
-         // If the input is not already valid JSON, treat it as a plain string.
          try { JSON.parse(jsonValue); } catch { jsonValue = JSON.stringify(jsonValue); }
       }
    }
@@ -552,7 +541,6 @@ function findEntry(entries, fullPath) {
    let found = null;
    for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      // Array items have numeric keys; match by key string or arrayIndex.
       found = (current ?? []).find(e => e.key === part || String(e.arrayIndex) === part);
       if (!found) return null;
       current = found.children;
@@ -601,14 +589,6 @@ function confirmDelete(fullPath, e) {
          else toast(r.error, 'error');
       }
    );
-}
-
-// ── Backup ────────────────────────────────────────────────────────────────
-async function createBackup() {
-   if (!currentFile) { toast('Select a file first', 'warn'); return; }
-   const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup`);
-   if (r.success) toast('Backup created ✓', 'success');
-   else toast(r.error, 'error');
 }
 
 // ── Monaco Editor ─────────────────────────────────────────────────────────
@@ -677,10 +657,6 @@ async function initMonaco() {
       _monacoInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveRaw());
       window.__monacoNs = monaco;
 
-      // Allow // and /* */ comments in the JSON language service so the
-      // editor does not show red squiggles on valid JSONC files.
-      // This preserves full JSON syntax highlighting and token colouring
-      // while suppressing the "Comments are not permitted" diagnostic.
       monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
          validate: true,
          allowComments: true,
@@ -753,10 +729,6 @@ function formatRaw() {
 
 async function saveRaw() {
    const content = getRawEditorContent();
-   // Validation is handled server-side by JsonCommentPreservingWriter.Validate
-   // (Newtonsoft.Json) which correctly accepts // and /* */ comments.
-   // The browser-native JSON.parse is intentionally not used here because it
-   // rejects comments and would block saving valid JSONC files.
    const r = await api('PUT', `/files/${enc(currentFile.fileName)}/raw`, { content });
    if (r.success) toast('Saved ✓', 'success');
    else toast(r.error, 'error');
@@ -774,29 +746,22 @@ function setEditorMode(mode) {
 }
 
 // ── View switching ────────────────────────────────────────────────────────
-// Fix #2 — setView() never touches toolbar visibility.
-// The toolbar is owned entirely by selectFile() (show) and _showNoFileState() (hide).
 function setView(v) {
    currentView = v;
-   // All known view panels — including the new 'guide' panel
    ['editor', 'swap', 'diff', 'guide'].forEach(id => {
       document.getElementById('view-' + id).classList.toggle('hidden', id !== v);
       const navEl = document.getElementById('nav-' + id);
       if (navEl) navEl.classList.toggle('active', id === v);
    });
 
-   // When switching TO the editor with no file selected: hide toolbar & show landing state
    if (v === 'editor' && !currentFile) {
       _showNoFileState();
    }
 
-   // When switching away from editor: hide both toolbar rows
-   // (they re-appear when selectFile() is called)
    if (v !== 'editor') {
       document.getElementById('editor-toolbar-row1').classList.add('hidden');
       document.getElementById('editor-toolbar-row2').classList.add('hidden');
    } else if (currentFile) {
-      // Switching back to editor and a file is already selected — restore toolbar
       document.getElementById('editor-toolbar-row1').classList.remove('hidden');
       document.getElementById('editor-toolbar-row2').classList.remove('hidden');
    }
@@ -815,10 +780,6 @@ function setView(v) {
 }
 
 // ── Swap ──────────────────────────────────────────────────────────────────
-
-// Populates only the swap <select> elements.
-// Called once on first load. After executeSwap() we call refreshSwapKeysOnly()
-// instead so the source/target/operation selection is preserved.
 function populateSwapSelects() {
    ['swap-source', 'swap-target'].forEach(id => {
       document.getElementById(id).innerHTML =
@@ -827,7 +788,6 @@ function populateSwapSelects() {
    });
 }
 
-// Populates only the diff <select> elements (always safe to replace).
 function populateDiffSelects() {
    ['diff-source', 'diff-target'].forEach(id => {
       document.getElementById(id).innerHTML =
@@ -881,30 +841,22 @@ async function executeSwap() {
          if (r.success) {
             toast(`${op} complete ✓`, 'success');
 
-            // Fix #1 — preserve form state after a successful swap.
-            // We need to update the internal file list (for diff selects etc.)
-            // but we must NOT re-render the swap <select> elements, which would
-            // wipe the user's source/target choice and clear the key list.
             const savedSource = source;
             const savedTarget = target;
             const savedOp = op;
 
-            // Refresh file metadata quietly
             const filesR = await api('GET', '/files');
             if (filesR.success) {
                files = filesR.data;
                renderFileList();
-               populateDiffSelects();   // safe — diff selects are separate elements
+               populateDiffSelects();
                updateWelcomeStats();
             }
 
-            // Restore the swap form selections
             sourceEl.value = savedSource;
             targetEl.value = savedTarget;
             opEl.value = savedOp;
 
-            // Reload the key list for the source file so moved keys are gone
-            // (for Move operations) or still shown (for Copy).
             await loadSwapKeys();
          } else {
             toast(r.error, 'error');
@@ -932,9 +884,7 @@ async function runDiff() {
       : '<div class="text-muted" style="padding:16px">Files are identical.</div>';
 }
 
-
 // ── Array operations ──────────────────────────────────────────────────────
-
 function promptAppendArrayItem(arrayPath, e) {
    e.stopPropagation();
    showModal(
@@ -951,12 +901,11 @@ function promptAppendArrayItem(arrayPath, e) {
             { keyPath: arrayPath, jsonValue: val });
          if (r.success) {
             toast('Item appended ✓', 'success');
-            expandedPaths.add(arrayPath);   // keep expanded after append
+            expandedPaths.add(arrayPath);
             await loadEntries();
          } else toast(r.error, 'error');
       }
    );
-   // Focus the textarea after the modal renders
    setTimeout(() => document.getElementById('modal-array-value')?.focus(), 50);
 }
 
@@ -974,12 +923,320 @@ function confirmDeleteArrayItem(arrayPath, index, e) {
    );
 }
 
+function openRightSidebar() {
+   if (!currentFile) { toast('Select a file first', 'warn'); return; }
+   const rs = document.getElementById('right-sidebar');
+   rs.style.display = 'flex';
+   document.getElementById('rs-file-label').textContent = currentFile.fileName;
+   loadRightSidebar();
+}
+
+function closeRightSidebar() {
+   document.getElementById('right-sidebar').style.display = 'none';
+}
+
+function setRsTab(tab) {
+   _rsTab = tab;
+   ['backups', 'audit'].forEach(t => {
+      document.getElementById('rs-tab-' + t).classList.toggle('active', t === tab);
+      document.getElementById('rs-panel-' + t).classList.toggle('hidden', t !== tab);
+   });
+   if (tab === 'audit') loadAuditLog();
+   else loadBackupList();
+}
+
+async function loadRightSidebar() {
+   if (_rsTab === 'backups') await loadBackupList();
+   else await loadAuditLog();
+}
+
+// ── Backup list ───────────────────────────────────────────────────────────
+async function loadBackupList() {
+   if (!currentFile) return;
+   const container = document.getElementById('backup-list');
+   container.innerHTML = '<div class="rs-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div></div>';
+   const r = await api('GET', `/files/${enc(currentFile.fileName)}/backups`);
+   if (!r.success) { container.innerHTML = `<div class="rs-empty text-red">${escHtml(r.error)}</div>`; return; }
+   if (!r.data.length) { container.innerHTML = '<div class="rs-empty">No backups yet.</div>'; return; }
+   // r.data is now just file names (not full paths) — FIX #3
+   container.innerHTML = r.data.map(name => {
+      const label = parseBackupLabel(name);
+      const date = parseBackupDate(name);
+      return `<div class="backup-item">
+            <div class="backup-item-info">
+                <span class="backup-name">${escHtml(label)}</span>
+                <span class="backup-date">${escHtml(date)}</span>
+            </div>
+            <div class="backup-item-actions">
+                <button class="btn btn-ghost btn-sm" title="Diff" onclick='showDiffModal("${name}")'>⊞</button>
+                <button class="btn btn-secondary btn-sm" title="Restore" onclick='confirmRestore("${name}")'>↩</button>
+                <button class="btn btn-danger btn-sm" title="Delete" onclick='confirmDeleteBackup("${name}")'>✕</button>
+            </div>
+        </div>`;
+   }).join('');
+}
+
+// FIX #3: work with file names only — no full paths needed on the frontend.
+// The backend resolves names to paths via ConfigUIOptions.ConfigDirectory.
+function parseBackupLabel(fileName) {
+   // e.g. "appsettings.json.v1.2.bak" → "v1.2"
+   //      "appsettings.json.20240101T120000.bak" → "20240101T120000"
+   const withoutBak = fileName.endsWith('.bak') ? fileName.slice(0, -4) : fileName;
+   const m = withoutBak.match(/appsettings(?:\.[^.]+)?\.json\.(.+)$/i);
+   return m ? m[1] : withoutBak;
+}
+
+function parseBackupDate(fileName) {
+   const label = parseBackupLabel(fileName);
+   const m = label.match(/^(\d{4})(\d{2})(\d{2})[T-](\d{2})(\d{2})(\d{2})$/);
+   if (m) {
+      const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+      return isNaN(d) ? label : d.toLocaleString();
+   }
+   return '';
+}
+
+// Keep old aliases so any remaining call sites still work
+function parseBackupName(p) { return parseBackupLabel(p); }
+
+// ── Named backup dialog ───────────────────────────────────────────────────
+async function promptNamedBackup() {
+   if (!currentFile) return;
+   const sr = await api('POST', `/files/${enc(currentFile.fileName)}/backup/suggest`);
+   const suggested = sr.success ? sr.data : new Date().toISOString().slice(0, 10);
+
+   showModal(
+      '💾 Create Backup',
+      `<div class="form-field" style="width:100%">
+            <span class="field-label">Backup name / label</span>
+            <input class="form-input" id="modal-backup-name" value="${escAttr(suggested)}"
+                style="width:100%" placeholder="e.g. v1.2 or before-payment-refactor" />
+            <span style="font-size:11px;color:var(--text2);margin-top:4px;display:block">
+                File will be saved as: <code>${escHtml(currentFile.fileName)}.{name}.bak</code>
+            </span>
+        </div>`,
+      async () => {
+         const name = document.getElementById('modal-backup-name')?.value?.trim() ?? suggested;
+         const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup`, { name });
+         if (r.success) { toast('Backup created ✓', 'success'); await loadBackupList(); }
+         else toast(r.error, 'error');
+      }
+   );
+   setTimeout(() => {
+      const inp = document.getElementById('modal-backup-name');
+      if (inp) { inp.focus(); inp.select(); }
+   }, 50);
+}
+
+// ── Restore ───────────────────────────────────────────────────────────────
+function confirmRestore(backupName) {
+   const label = parseBackupLabel(backupName);
+   showModal(
+      'Restore backup?',
+      `Restore <strong>${escHtml(currentFile.fileName)}</strong> from backup <strong class="monospace">${escHtml(label)}</strong>?
+        <br><br><span style="color:var(--yellow);font-size:12px">⚠ The current file will be backed up automatically before restoring.</span>`,
+      async () => {
+         const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup/restore`,
+            { backupPath: backupName });
+         if (r.success) {
+            toast('Restored ✓', 'success');
+            await loadBackupList();
+            await loadEntries();
+         } else toast(r.error, 'error');
+      }
+   );
+}
+
+// ── Delete backup ─────────────────────────────────────────────────────────
+function confirmDeleteBackup(backupName) {
+   const label = parseBackupLabel(backupName);
+   showModal(
+      'Delete backup?',
+      `Permanently delete backup <strong class="monospace">${escHtml(label)}</strong>? This cannot be undone.`,
+      async () => {
+         const r = await api('DELETE',
+            `/files/${enc(currentFile.fileName)}/backup?path=${enc(backupName)}`);
+         if (r.success) { toast('Backup deleted ✓', 'success'); await loadBackupList(); }
+         else toast(r.error, 'error');
+      }
+   );
+}
+
+// ── FIX #5: Backup diff modal — JSON key-level diff instead of line-by-line ──
+async function showDiffModal(backupName) {
+   const r = await api('GET',
+      `/files/${enc(currentFile.fileName)}/backups/diff?backup=${enc(backupName)}`);
+   if (!r.success) { toast(r.error, 'error'); return; }
+
+   const { current, backup } = r.data;
+   let cur = {}, bak = {};
+   try { cur = flattenJson(JSON.parse(current)); } catch { }
+   try { bak = flattenJson(JSON.parse(backup)); } catch { }
+
+   const allKeys = [...new Set([...Object.keys(bak), ...Object.keys(cur)])].sort();
+   let rows = '';
+   let hasDiff = false;
+
+   for (const k of allKeys) {
+      const inBak = k in bak, inCur = k in cur;
+      if (inBak && inCur && bak[k] === cur[k]) continue; // skip identical
+      hasDiff = true;
+      if (inBak && !inCur)
+         rows += `<tr>
+            <td class="diff-only-src monospace" style="word-break:break-all">${escHtml(k)}</td>
+            <td class="diff-only-src" style="word-break:break-all">${escHtml(bak[k])}</td>
+            <td style="color:var(--text2);font-style:italic">removed</td>
+         </tr>`;
+      else if (!inBak && inCur)
+         rows += `<tr>
+            <td class="diff-only-tgt monospace" style="word-break:break-all">${escHtml(k)}</td>
+            <td style="color:var(--text2);font-style:italic">—</td>
+            <td class="diff-only-tgt" style="word-break:break-all">${escHtml(cur[k])}</td>
+         </tr>`;
+      else
+         rows += `<tr>
+            <td class="diff-changed monospace" style="word-break:break-all">${escHtml(k)}</td>
+            <td class="diff-changed" style="word-break:break-all">${escHtml(bak[k])}</td>
+            <td class="diff-changed" style="word-break:break-all">${escHtml(cur[k])}</td>
+         </tr>`;
+   }
+
+   const label = parseBackupLabel(backupName);
+   document.getElementById('modal-title').innerHTML =
+      `⊞ Diff — <span class="monospace" style="font-size:13px">${escHtml(label)}</span> vs current`;
+   document.getElementById('modal-body').innerHTML = hasDiff
+      ? `<div style="overflow-y:auto;max-height:60vh">
+            <table class="diff-table" style="width:100%;table-layout:fixed">
+               <colgroup><col style="width:35%"><col style="width:32.5%"><col style="width:32.5%"></colgroup>
+               <thead><tr><th>Key</th><th>Backup (${escHtml(label)})</th><th>Current</th></tr></thead>
+               <tbody>${rows}</tbody>
+            </table>
+         </div>`
+      : '<div class="text-muted" style="padding:16px">Files are identical.</div>';
+
+   document.getElementById('modal-backdrop').classList.remove('hidden');
+   document.querySelector('.modal').style.width = 'min(90vw, 780px)';
+   document.getElementById('modal-confirm').style.display = 'none';
+   document.getElementById('modal-cancel').onclick = _origCloseModal;
+}
+
+// FIX #5 helper: flatten a nested JSON object to colon-separated key paths
+function flattenJson(obj, prefix) {
+   prefix = prefix || '';
+   const result = {};
+   for (const [k, v] of Object.entries(obj)) {
+      const path = prefix ? `${prefix}:${k}` : k;
+      if (v !== null && typeof v === 'object' && !Array.isArray(v))
+         Object.assign(result, flattenJson(v, path));
+      else
+         result[path] = JSON.stringify(v);
+   }
+   return result;
+}
+
+// Override closeModal to reset modal width
+const _origCloseModal = function () {
+   closeModal();
+   document.querySelector('.modal').style.width = '';
+   document.getElementById('modal-confirm').style.display = '';
+}
+
+// ── FIX #2: Audit log — collapsible by key ────────────────────────────────
+async function loadAuditLog() {
+   if (!currentFile) return;
+   const container = document.getElementById('audit-list');
+   container.innerHTML = '<div class="rs-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div></div>';
+   const r = await api('GET', `/files/${enc(currentFile.fileName)}/audit`);
+   if (!r.success) { container.innerHTML = `<div class="rs-empty text-red">${escHtml(r.error)}</div>`; return; }
+   if (!r.data.length) {
+      container.innerHTML = '<div class="rs-empty">No audit entries yet.<br><span style="font-size:11px">Enable via <code>options.EnableAuditLogging = true</code></span></div>';
+      return;
+   }
+
+   const opColor = {
+      Add: 'var(--green)', Update: 'var(--accent)', Delete: 'var(--red)',
+      Restore: 'var(--purple)', SaveRaw: 'var(--orange)',
+      AppendArrayItem: 'var(--green)', RemoveArrayItem: 'var(--red)'
+   };
+
+   // Group entries by keyPath
+   const groups = {};
+   r.data.forEach(e => {
+      if (!groups[e.keyPath]) groups[e.keyPath] = [];
+      groups[e.keyPath].push(e);
+   });
+
+   container.innerHTML = Object.entries(groups).map(([keyPath, entries]) => {
+      const id = 'agroup-' + pathToId(keyPath);
+      const rows = entries.map(e => {
+         const color = opColor[e.operation] ?? 'var(--text2)';
+         const ts = new Date(e.timestamp).toLocaleString();
+         return `<div class="audit-item" style="border:none;background:var(--bg);margin:2px 0;border-radius:4px;padding:6px 8px">
+            <div class="audit-header">
+                <span class="audit-op" style="color:${color}">${escHtml(e.operation)}</span>
+                <span class="audit-ts">${escHtml(ts)}</span>
+            </div>
+            ${e.oldValue || e.newValue ? `
+            <div class="audit-values">
+                ${e.oldValue ? `<div class="audit-val old"><span>before:</span> <code>${escHtml(e.oldValue)}</code></div>` : ''}
+                ${e.newValue ? `<div class="audit-val new"><span>after:</span> <code>${escHtml(e.newValue)}</code></div>` : ''}
+            </div>` : ''}
+         </div>`;
+      }).join('');
+
+      return `<div class="audit-group">
+         <div class="audit-group-header" onclick="toggleAuditGroup('${escAttr(id)}')">
+            <span class="tree-toggle" id="${id}-tog">▸</span>
+            <span class="audit-key monospace" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(keyPath)}</span>
+            <span class="audit-ts" style="flex-shrink:0;margin-left:6px">${entries.length} change${entries.length > 1 ? 's' : ''}</span>
+         </div>
+         <div id="${id}" class="hidden" style="padding:4px 6px">${rows}</div>
+      </div>`;
+   }).join('');
+}
+
+// FIX #2 helper: toggle a key group open/closed
+function toggleAuditGroup(id) {
+   const el = document.getElementById(id);
+   const tog = document.getElementById(id + '-tog');
+   if (!el) return;
+   el.classList.toggle('hidden');
+   if (tog) tog.textContent = el.classList.contains('hidden') ? '▸' : '▾';
+}
+
+// ── Right sidebar resizer ─────────────────────────────────────────────────
+(function initResizer() {
+   document.addEventListener('DOMContentLoaded', () => {
+      const resizer = document.getElementById('rs-resizer');
+      if (!resizer) return;
+      let startX, startW;
+      resizer.addEventListener('mousedown', e => {
+         _rsResizing = true;
+         startX = e.clientX;
+         startW = document.getElementById('right-sidebar').offsetWidth;
+         document.body.style.userSelect = 'none';
+         document.body.style.cursor = 'col-resize';
+      });
+      document.addEventListener('mousemove', e => {
+         if (!_rsResizing) return;
+         const delta = startX - e.clientX;
+         const newW = Math.max(220, Math.min(600, startW + delta));
+         document.getElementById('right-sidebar').style.width = newW + 'px';
+      });
+      document.addEventListener('mouseup', () => {
+         if (!_rsResizing) return;
+         _rsResizing = false;
+         document.body.style.userSelect = '';
+         document.body.style.cursor = '';
+      });
+   });
+})();
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 function showEditorLoading(show) {
    document.getElementById('editor-loading').style.display = show ? 'flex' : 'none';
    document.getElementById('tree-view').classList.toggle('hidden', show || editorMode !== 'tree');
    document.getElementById('raw-view').classList.toggle('hidden', show || editorMode !== 'raw');
-   // While loading, hide the "no file" state too
    if (show) document.getElementById('editor-no-file').classList.add('hidden');
 }
 

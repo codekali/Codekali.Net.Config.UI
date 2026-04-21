@@ -142,7 +142,8 @@ header {
     text-transform: uppercase;
     letter-spacing: .8px;
     color: var(--text2);
-    border-bottom: 1px solid var(--border)
+    border-bottom: 1px solid var(--border);
+    height: 51px;
 }
 
 .file-list {
@@ -1201,7 +1202,7 @@ header {
     flex-direction: column;
     align-items: center;
     gap: 14px;
-    max-width: 420px;
+    max-width: fit-content;
     text-align: center;
 }
 
@@ -1304,3 +1305,296 @@ header {
     flex-shrink: 0;
     animation: slideIn .2s ease;
 }
+
+/* ── Workspace (content + right sidebar) ── */
+.workspace {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ── Right Sidebar ── */
+.right-sidebar {
+    width: 300px;
+    flex-shrink: 0;
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    position: relative;
+    min-height: 0; 
+}
+
+.right-sidebar-resizer {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    flex-shrink: 0;
+    transition: background .15s;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 10;
+}
+
+    .right-sidebar-resizer:hover {
+        background: var(--accent);
+    }
+
+.right-sidebar-inner {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    padding-left: 4px;
+    min-height: 0;
+}
+
+.right-sidebar-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px 6px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+    flex-shrink: 0;
+    height: 51px;
+}
+
+.rs-file-label {
+    font-family: var(--font);
+    font-size: 11px;
+    color: var(--text2);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rs-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.rs-tab {
+    flex: 1;
+    padding: 8px 4px;
+    font-size: 12px;
+    color: var(--text2);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+}
+
+    .rs-tab:hover {
+        color: var(--text);
+    }
+
+    .rs-tab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+        font-weight: 600;
+    }
+
+.rs-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.rs-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.rs-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+}
+
+.rs-empty {
+    color: var(--text2);
+    font-size: 12px;
+    padding: 16px 8px;
+    text-align: center;
+    line-height: 1.6;
+}
+
+.rs-loading {
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* ── Backup items ── */
+.backup-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    transition: border-color .15s;
+    flex-shrink: 0;
+}
+
+    .backup-item:hover {
+        border-color: var(--accent);
+    }
+
+.backup-item-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.backup-name {
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backup-date {
+    font-size: 11px;
+    color: var(--text2);
+}
+
+.backup-item-actions {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+/* ── Audit items ── */
+.audit-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+}
+
+.audit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.audit-op {
+    font-weight: 700;
+    font-family: var(--font);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.audit-ts {
+    font-size: 10px;
+    color: var(--text2);
+}
+
+.audit-key {
+    font-size: 11px;
+    color: var(--accent2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.audit-values {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.audit-val {
+    font-size: 11px;
+    display: flex;
+    gap: 4px;
+    align-items: flex-start;
+}
+
+    .audit-val span {
+        color: var(--text2);
+        flex-shrink: 0;
+    }
+
+    .audit-val code {
+        font-family: var(--font);
+        word-break: break-all;
+        color: var(--text);
+    }
+
+    .audit-val.old code {
+        color: var(--red);
+    }
+
+    .audit-val.new code {
+        color: var(--green);
+    }
+
+/* ── Diff table additions ── */
+.diff-ln {
+    color: var(--text2);
+    text-align: right;
+    padding: 2px 8px;
+    user-select: none;
+    font-size: 11px;
+    min-width: 30px;
+    border-right: 1px solid var(--border);
+}
+
+.diff-code {
+    padding: 2px 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: var(--font);
+    font-size: 12px;
+}
+
+
+.audit-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    background: var(--bg3);
+    flex-shrink: 0;
+}
+
+.audit-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+    .audit-group-header:hover {
+        background: var(--border);
+    }
