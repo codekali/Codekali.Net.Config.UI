@@ -11,13 +11,13 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <Authors>Codekali - Jawwad A. Ayyubi</Authors>
     <Company>Codekali</Company>
     <Product>Codekali.Net.Config.UI</Product>
     <Description>A plug-and-play .NET library that provides a browser-based GUI for managing appsettings.json configuration files across environments.</Description>
 	 <PackageReleaseNotes>
-		 v1.2.1 — Full appsettings management suite.
+		 v1.2 — New features and improvements:
 		 - Backup files now include timestamp and optional version prefix, e.g. <c>appsettings.json.v1.2.1.20240601T1530.bak</c>
 		 - Audit logs added to track changes to appsettings files, including raw JSON saves
 	 </PackageReleaseNotes>

@@ -1,6 +1,6 @@
 # Codekali.Net.Config.UI
 
-> A plug-and-play .NET 8 library that provides a browser-based GUI for managing `appsettings.json` configuration files in any .NET solution.
+> A plug-and-play .NET library that provides a browser-based GUI for managing `appsettings.json` configuration files across environments in any .NET solution.
 
 ---
 
@@ -17,6 +17,9 @@
 - 💾 **Never auto-saves** — all changes require an explicit save action
 - 🔒 **Sensitive value masking** (`password`, `secret`, `token`, `apikey`)
 - 🌙 **Dark / Light mode** toggle
+- 🔄 **Hot reload detection** — banner notification when a file changes externally
+- 💾 **Timestamped backups** — automatic backup files with version prefixes (e.g., `appsettings.json.v1.2.1.20240601T1530.bak`)
+- 📋 **Audit logs** — track all changes to appsettings files, including raw JSON saves
 - 🔐 **Development-only** by default — optional access token or ASP.NET Core Authorization policy
 
 ---
@@ -63,6 +66,9 @@ builder.Services.AddConfigUI(options =>
     options.EnableAutoToken       = false;                    // auto-generate token on first run
     options.EnableHotReloadDetection = true;
     options.ConfigDirectory       = null;                     // defaults to CWD
+    options.ShowReloadWarning     = true;
+    options.BackupVersionPrefix   = "v1";                     // optional version prefix for backup files
+    options.EnableAuditLogging    = true;   
 });
 ```
 
@@ -149,7 +155,20 @@ dotnet run
 
 ## 📝 Version History
 
-### v1.1.0 ✨ (Latest)
+### v1.2.1 ✨ (Latest)
+- 💾 **Timestamped backups** — backup files now include timestamp and optional version prefix, e.g. `appsettings.json.v1.2.1.20240601T1530.bak`
+- 📋 **Audit logs** — track changes to appsettings files, including raw JSON saves for full transparency
+
+### v1.1.6 ✨
+- 💬 Comment preservation — // and /* */ comments survive every save
+- ⇄ Move / Copy configuration keys between environment files
+- ⊞ Side-by-side diff comparing any two environment files
+- 🔄 Hot reload detection — banner notification when a file changes externally
+- 💾 Never auto-saves — all changes require an explicit save action
+- 🔒 **Sensitive value masking** — automatically mask sensitive values (e.g., passwords, API keys) in the UI
+- 🌙 **Dark / Light mode** toggle — switch between dark and light themes
+
+### v1.1.0
 - ✨ **Enhanced feature set** — refined UI/UX for config management
 - 🔧 **Improved stability** — better error handling and edge case coverage
 - 📚 **Better documentation** — clearer configuration and usage examples
