@@ -104,6 +104,15 @@ namespace Codekali.Net.Config.UI.Middleware
                 }
             }
 
+            if (apiPath.Equals("validate", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleValidateAsync(ctx).ConfigureAwait(false); return; }
+
+            if (apiPath.Equals("assertions/run", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleAssertionsRunAsync(ctx).ConfigureAwait(false); return; }
+
+            if (apiPath.Equals("schema", StringComparison.OrdinalIgnoreCase) && method == "GET")
+            { await HandleGetSchemaAsync(ctx).ConfigureAwait(false); return; }
+
             ctx.Response.StatusCode = 404;
             await ConfigUIMiddlewareHelpers.WriteJsonAsync(ctx,
                 new { error = $"Unknown API route: {apiPath}" }).ConfigureAwait(false);

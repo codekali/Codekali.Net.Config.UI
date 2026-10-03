@@ -50,9 +50,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ConfigUIStaticHandler>(); 
         services.AddSingleton<ISchemaValidationService, SchemaValidationService>();
         services.AddSingleton<IAssertionRunnerService, AssertionRunnerService>();
-        // IConfigurationTest implementations are registered by the host app;
-        // we register an empty enumerable as fallback so DI doesn't throw when none exist.
-        // services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigurationTest, NullConfigurationTest>());
+        
+        foreach (var type in options.ConfigurationTestTypes)
+        {
+            if (!typeof(IConfigurationTest).IsAssignableFrom(type))
+                throw new InvalidOperationException(
+                    $"Type '{type.FullName}' does not implement IConfigurationTest.");
+
+            services.AddSingleton(typeof(IConfigurationTest), type);
+        }
 
         var results = new List<ValidationResult>();
         if (!Validator.TryValidateObject(options, new ValidationContext(options), results, true))
@@ -148,12 +154,4 @@ public static class ServiceCollectionExtensions
                 token, LaunchSettingsTokenWriter.EnvironmentVariableName, token);
         }
     }
-
-    // Ensures IEnumerable<IConfigurationTest> resolves even with no user-defined tests.
-    /*private sealed class NullConfigurationTest : IConfigurationTest
-    {
-        public string Name => string.Empty;
-        public Task<AssertionOutcome> RunAsync(IConfiguration config, CancellationToken ct)
-            => Task.FromResult(AssertionOutcome.Pass());
-    }*/
 }
