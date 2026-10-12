@@ -55,13 +55,13 @@
                             <span class="toolbar-title" id="toolbar-title"></span>
                             <div class="toolbar-sep"></div>
                             <div style="display:flex;gap:8px;align-items:center">
-                                <div class="toggle-group">
-                                    <button class="toggle-btn active" id="toggle-tree" onclick="setEditorMode('tree')">Tree</button>
-                                    <button class="toggle-btn" id="toggle-raw" onclick="setEditorMode('raw')">Raw JSON</button>
-                                </div>
                                 <div class="search-wrap">
                                     <span class="icon">🔍</span>
                                     <input class="search-input" id="search-input" placeholder="Search keys…" oninput="onSearch()" />
+                                </div>
+                                <div class="toggle-group">
+                                    <button class="toggle-btn active" id="toggle-tree" onclick="setEditorMode('tree')">Tree</button>
+                                    <button class="toggle-btn" id="toggle-raw" onclick="setEditorMode('raw')">Raw JSON</button>
                                 </div>
                             </div>
                         </div>

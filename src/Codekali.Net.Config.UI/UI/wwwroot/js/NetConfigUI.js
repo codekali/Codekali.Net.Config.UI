@@ -750,6 +750,7 @@ function setEditorMode(mode) {
    document.getElementById('toggle-raw').classList.toggle('active', mode === 'raw');
    document.getElementById('tree-view').classList.add('hidden');
    document.getElementById('raw-view').classList.add('hidden');
+   document.getElementsByClassName('search-wrap')[0].classList.toggle('hidden', mode === 'raw');
    if (currentFile) loadEntries();
 }
 

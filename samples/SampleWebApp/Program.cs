@@ -10,6 +10,7 @@ builder.Services.AddConfigUI(options =>
     options.PathPrefix = "/configuration";
     options.BackupVersionPrefix = "v.1";
     options.MaskSensitiveValues = true;
+    options.EnableAuditLogging = true;
     options.ConfigurationTestTypes = [typeof(CustomConfigurationTests)];
 });
 
