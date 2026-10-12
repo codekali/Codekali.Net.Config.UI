@@ -1,78 +1,77 @@
 # Codekali.Net.Config.UI
 
-> A plug-and-play .NET library that provides a browser-based GUI for managing `appsettings.json` configuration files across environments in any .NET solution.
+> Browser-based configuration management UI for ASP.NET Core. Edit `appsettings.json` files across environments with a visual tree editor, Monaco code editor, and comprehensive audit trail.
 
 ---
 
-## ✨ Features
+## Features
 
-- 📂 **Auto-detect** all `appsettings*.json` files at runtime
-- 🌳 **Tree view** — expand, edit, add, delete inline with full array support
-- 🔢 **Array editing** — expand arrays, append items, remove items by index
-- ✏️ **Raw JSON editor** powered by Monaco (VS Code engine) with syntax highlighting, bracket matching, and `Ctrl+S` to save
-- 💬 **Comment preservation** — `//` and `/* */` comments survive every save
-- ⇄ **Move / Copy** configuration keys between environment files
-- ⊞ **Side-by-side diff** comparing any two environment files
-- 🔄 **Hot reload detection** — banner notification when a file changes externally
-- 💾 **Never auto-saves** — all changes require an explicit save action
-- 🔒 **Sensitive value masking** (`password`, `secret`, `token`, `apikey`)
-- 🌙 **Dark / Light mode** toggle
-- 🔄 **Hot reload detection** — banner notification when a file changes externally
-- 💾 **Timestamped backups** — automatic backup files with version prefixes (e.g., `appsettings.json.v1.2.1.20240601T1530.bak`)
-- 📋 **Audit logs** — track all changes to appsettings files, including raw JSON saves
-- 🔐 **Development-only** by default — optional access token or ASP.NET Core Authorization policy
+- **Auto-detect** all `appsettings*.json` files at runtime
+- **Tree view editor** — expand, edit, add, delete inline with full array support
+- **Array handling** — expand arrays, append items, remove items by index
+- **Monaco editor** (VS Code engine) — syntax highlighting, bracket matching, `Ctrl+S` to save
+- **Comment preservation** — `//` and `/* */` comments survive every save
+- **Copy/Move keys** — reorganize configuration keys between environment files
+- **Side-by-side diff** — compare any two environment files
+- **Hot reload detection** — banner notification when a file changes externally
+- **Never auto-saves** — all changes require an explicit save action
+- **Sensitive value masking** — automatically mask passwords, secrets, tokens, API keys
+- **Dark/Light mode** — toggle between themes
+- **Timestamped backups** — automatic backup files with version prefixes (e.g., `appsettings.json.v1.2.1.20240601T1530.bak`)
+- **Audit logs** — track all changes to appsettings files, including raw JSON saves
+- **Development-only by default** — optional access token or ASP.NET Core Authorization policy
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Install
+### Install
 
 ```bash
 dotnet add package Codekali.Net.Config.UI
 ```
 
-### 2. Register services
+### Register Services
 
 ```csharp
 // Program.cs
 builder.Services.AddConfigUI();
 ```
 
-### 3. Activate middleware
+### Activate Middleware
 ```csharp
 app.UseConfigUI();
 ```
 
-### 4. Open your browser
+### Open in Browser
 
 ```
-https://localhost:{PORT-NO}/config-ui
+https://localhost:{PORT}/config-ui
 ```
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ```csharp
 builder.Services.AddConfigUI(options =>
 {
     options.PathPrefix            = "/config-ui";            // Configurable, defaults to "/config-ui"
-    options.AccessToken           = "your-secret-token";     // simple token auth
-    options.AuthorizationPolicy   = "ConfigUIAccess";         // or ASP.NET Core policy
+    options.AccessToken           = "your-secret-token";     // Simple token-based authentication
+    options.AuthorizationPolicy   = "ConfigUIAccess";        // OR ASP.NET Core authorization policy
     options.AllowedEnvironments   = ["Development","Staging"];
     options.MaskSensitiveValues   = true;
     options.ReadOnly              = false;
-    options.EnableAutoToken       = false;                    // auto-generate token on first run
+    options.EnableAutoToken       = false;                   // Auto-generate token on first run
     options.EnableHotReloadDetection = true;
-    options.ConfigDirectory       = null;                     // defaults to CWD
+    options.ConfigDirectory       = null;                    // Defaults to current working directory
     options.ShowReloadWarning     = true;
-    options.BackupVersionPrefix   = "v1";                     // optional version prefix for backup files
+    options.BackupVersionPrefix   = "v1";                    // Optional version prefix for backups
     options.EnableAuditLogging    = true;   
 });
 ```
 
-### Authorization policy example
+### Authorization Policy Example
 ```csharp
 builder.Services.AddAuthorization(o =>
     o.AddPolicy("ConfigUIAccess", p => p.RequireRole("Admin")));
@@ -80,16 +79,16 @@ builder.Services.AddAuthorization(o =>
 app.UseConfigUI();
 ```
 
-### Auto token generation
+### Auto Token Generation
 ```csharp
 builder.Services.AddConfigUI(options => options.EnableAutoToken = true);
 // Token is generated on first run and written to Properties/launchSettings.json
 // as CONFIGUI_ACCESS_TOKEN. Subsequent runs load it from the environment variable.
 ```
 
-### IOptions reload guidance
+### Important: IOptions Reload Guidance
 
-> ⚠️ Changes written by the Config UI take effect at runtime only when consuming code uses `IOptionsSnapshot<T>` (per-request) or `IOptionsMonitor<T>` (singleton-safe) rather than `IOptions<T>` which snapshots at startup.
+**Note:** Changes written by Config UI take effect at runtime only when consuming code uses `IOptionsSnapshot<T>` (per-request) or `IOptionsMonitor<T>` (singleton-safe) rather than `IOptions<T>` which snapshots at startup.
 
 Access token is checked via:
 - Header: `X-Config-Token: your-secret-token`
@@ -97,17 +96,17 @@ Access token is checked via:
 
 ---
 
-## 🔐 Security
+## Security
 
 The middleware returns **404** when accessed outside an allowed environment — it does not leak its existence. For production usage:
 
-- Set `AllowedEnvironments` explicitly
-- Always set an `AccessToken`
-- Consider putting the path behind a VPN or internal network
+- Set `AllowedEnvironments` explicitly to restrict deployment targets
+- Always configure an `AccessToken` for authentication
+- Consider putting the path behind a VPN or firewall for additional protection
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 src/Codekali.Net.Config.UI/
@@ -121,13 +120,13 @@ src/Codekali.Net.Config.UI/
 ├── Extensions/         ServiceCollectionExtensions (AddConfigUI / UseConfigUI)
 └── UI/wwwroot/         index.html (embedded single-page UI)
 
-samples/SampleWebApp/   Reference project
-tests/                  xUnit + Moq + FluentAssertions
+samples/SampleWebApp/   Reference application
+tests/                  Unit tests (xUnit, Moq, FluentAssertions)
 ```
 
 ---
 
-## 🛠 Development
+## Development
 
 ```bash
 # Build
@@ -136,7 +135,7 @@ dotnet build
 # Run tests
 dotnet test
 
-# Run sample app
+# Run sample application
 cd samples/SampleWebApp
 dotnet run
 # → open https://localhost:5001/config-ui
@@ -144,38 +143,38 @@ dotnet run
 
 ---
 
-## 📦 NuGet Targets
+## Target Frameworks
 
-| Target           | Notes                              |
-|------------------|------------------------------------|
-| `net8.0`         | Full ASP.NET Core FrameworkRef     |
-| `netstandard2.1` | Works with any compatible host     |
+| Target           | Details                              |
+|------------------|--------------------------------------|
+| `net8.0`         | Full ASP.NET Core framework          |
+| `netstandard2.1` | Compatible with any .NET host        |
 
 ---
 
-## 📝 Version History
+## Version History
 
-### v1.2.1 ✨ (Latest)
-- 💾 **Timestamped backups** — backup files now include timestamp and optional version prefix, e.g. `appsettings.json.v1.2.1.20240601T1530.bak`
-- 📋 **Audit logs** — track changes to appsettings files, including raw JSON saves for full transparency
+### v1.2.1 (Latest)
+- Timestamped backups — backup files now include timestamp and optional version prefix (e.g., `appsettings.json.v1.2.1.20240601T1530.bak`)
+- Audit logs — track changes to appsettings files, including raw JSON saves for full transparency
 
-### v1.1.6 ✨
-- 💬 Comment preservation — // and /* */ comments survive every save
-- ⇄ Move / Copy configuration keys between environment files
-- ⊞ Side-by-side diff comparing any two environment files
-- 🔄 Hot reload detection — banner notification when a file changes externally
-- 💾 Never auto-saves — all changes require an explicit save action
-- 🔒 **Sensitive value masking** — automatically mask sensitive values (e.g., passwords, API keys) in the UI
-- 🌙 **Dark / Light mode** toggle — switch between dark and light themes
+### v1.1.6
+- Comment preservation — `//` and `/* */` comments survive every save
+- Copy/Move configuration keys between environment files
+- Side-by-side diff comparing any two environment files
+- Hot reload detection — banner notification when a file changes externally
+- Explicit save requirement — never auto-saves configuration changes
+- Sensitive value masking — automatically mask passwords, API keys, tokens
+- Dark/Light mode — switch between themes
 
 ### v1.1.0
-- ✨ **Enhanced feature set** — refined UI/UX for config management
-- 🔧 **Improved stability** — better error handling and edge case coverage
-- 📚 **Better documentation** — clearer configuration and usage examples
+- Enhanced feature set — refined UI/UX for configuration management
+- Improved stability — better error handling and edge case coverage
+- Better documentation — clearer configuration and usage examples
 
 ### v1.0.0
 - Initial release with core configuration UI features
 
 ---
 
-*Codekali.Net.Config.UI — github.com/Codekali*
+Made with ❤️ by [Codekali](https://github.com/Codekali) | Licensed under MIT

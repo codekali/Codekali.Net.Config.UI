@@ -240,10 +240,17 @@ internal sealed class AppSettingsService(
         {
             var fullPath = repository.ResolvePath(fileName);
 
+            // Read existing content before overwriting so we can diff for audit.
+            string? oldRaw = null;
+            if (repository.FileExists(fullPath))
+                oldRaw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+
             // Write the raw content verbatim — do NOT re-serialise.
-            // The user typed this; keep it exactly as authored.
             await repository.WriteAllTextAsync(fullPath, rawJson, ct).ConfigureAwait(false);
-            await auditService.RecordAsync(fileName, AuditOperation.SaveRaw, "*", null, rawJson, ct);
+
+            // Audit each changed key individually (same granularity as tree-view edits).
+            await AuditRawSaveDiffAsync(fileName, oldRaw, rawJson, ct).ConfigureAwait(false);
+
             logger.LogInformation("Saved raw JSON to {FileName}", fileName);
             return OperationResult.Success();
         }
@@ -315,6 +322,54 @@ internal sealed class AppSettingsService(
         return (root, null);
     }
 
+    /// <summary>
+    /// Diffs the old and new raw JSON and emits one audit entry per changed,
+    /// added, or deleted key — identical to what the tree-view inline editor
+    /// produces, so the audit log is consistent regardless of which editor was used.
+    /// Falls back to a single SaveRaw entry if either side cannot be parsed.
+    /// </summary>
+    private async Task AuditRawSaveDiffAsync(
+        string fileName, string? oldRaw, string newRaw, CancellationToken ct)
+    {
+        if (!options.EnableAuditLogging) return;   // skip parse work when auditing is off
+
+        // Parse both sides; fall back to the coarse SaveRaw entry on parse failure.
+        var newRoot = JsonHelper.ParseObject(newRaw);
+        if (newRoot is null)
+        {
+            await auditService.RecordAsync(fileName, AuditOperation.SaveRaw, "*", null, newRaw, ct)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        JsonObject? oldRoot = null;
+        if (!string.IsNullOrWhiteSpace(oldRaw))
+            oldRoot = JsonHelper.ParseObject(oldRaw);
+
+        var newFlat = JsonHelper.Flatten(newRoot, maskSensitive: false);
+        var oldFlat = oldRoot is not null
+            ? JsonHelper.Flatten(oldRoot, maskSensitive: false)
+            : new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        // Keys added or updated
+        foreach (var (key, newVal) in newFlat)
+        {
+            oldFlat.TryGetValue(key, out var oldVal);
+            if (oldVal == newVal) continue;   // unchanged
+
+            var op = oldFlat.ContainsKey(key) ? AuditOperation.Update : AuditOperation.Add;
+            await auditService.RecordAsync(fileName, op, key, oldVal, newVal, ct)
+                .ConfigureAwait(false);
+        }
+
+        // Keys deleted
+        foreach (var (key, oldVal) in oldFlat)
+        {
+            if (!newFlat.ContainsKey(key))
+                await auditService.RecordAsync(fileName, AuditOperation.Delete, key, oldVal, null, ct)
+                    .ConfigureAwait(false);
+        }
+    }
 
     /// <inheritdoc/>
     public async Task<OperationResult> AppendArrayItemAsync(

@@ -1,3 +1,5 @@
+using Codekali.Net.Config.UI.Services;
+
 namespace Codekali.Net.Config.UI.Models;
 
 /// <summary>
@@ -25,6 +27,15 @@ public sealed class SwapRequest
 
     /// <summary>When true, silently overwrites a key that already exists in the target file.</summary>
     public bool OverwriteExisting { get; init; }
+
+    /// <summary>
+    /// When true, skips creating backup files for this operation.
+    /// Used by the Compare row-action buttons to avoid backup spam when the user
+    /// clicks multiple directional actions in quick succession.
+    /// The calling code is responsible for having created a backup within the last
+    /// <see cref="EnvironmentSwapService.BackupThrottleSeconds"/> seconds.
+    /// </summary>
+    public bool SkipBackup { get; init; }
 }
 
 /// <summary>The type of environment swap operation to perform.</summary>

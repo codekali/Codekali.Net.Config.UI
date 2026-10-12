@@ -3,7 +3,9 @@ using Codekali.Net.Config.UI.Middleware;
 using Codekali.Net.Config.UI.Models;
 using Codekali.Net.Config.UI.Services;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel.DataAnnotations;
@@ -45,7 +47,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEnvironmentSwapService, EnvironmentSwapService>();
         services.AddSingleton<IAuditService, AuditService>();
         services.AddSingleton<ConfigUIApiHandler>();
-        services.AddSingleton<ConfigUIStaticHandler>();
+        services.AddSingleton<ConfigUIStaticHandler>(); 
+        services.AddSingleton<ISchemaValidationService, SchemaValidationService>();
+        services.AddSingleton<IAssertionRunnerService, AssertionRunnerService>();
+        
+        foreach (var type in options.ConfigurationTestTypes)
+        {
+            if (!typeof(IConfigurationTest).IsAssignableFrom(type))
+                throw new InvalidOperationException(
+                    $"Type '{type.FullName}' does not implement IConfigurationTest.");
+
+            services.AddSingleton(typeof(IConfigurationTest), type);
+        }
 
         var results = new List<ValidationResult>();
         if (!Validator.TryValidateObject(options, new ValidationContext(options), results, true))

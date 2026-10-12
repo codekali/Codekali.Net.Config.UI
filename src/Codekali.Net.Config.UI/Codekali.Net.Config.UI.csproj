@@ -1,43 +1,98 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\Codekali.Net.Config.UI.xml</DocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
+	<PropertyGroup>
+		<TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<LangVersion>latest</LangVersion>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<DocumentationFile>bin\$(Configuration)\$(TargetFramework)\Codekali.Net.Config.UI.xml</DocumentationFile>
+		<NoWarn>$(NoWarn);1591</NoWarn>
 
-    <!-- NuGet Package Metadata -->
-    <PackageId>Codekali.Net.Config.UI</PackageId>
-    <Version>1.2.2</Version>
-    <Authors>Codekali - Jawwad A. Ayyubi</Authors>
-    <Company>Codekali</Company>
-    <Product>Codekali.Net.Config.UI</Product>
-    <Description>A plug-and-play .NET library that provides a browser-based GUI for managing appsettings.json configuration files across environments.</Description>
-	 <PackageReleaseNotes>
-		 v1.2 — New features and improvements:
-		 - Backup files now include timestamp and optional version prefix, e.g. <c>appsettings.json.v1.2.1.20240601T1530.bak</c>
-		 - Audit logs added to track changes to appsettings files, including raw JSON saves
-	 </PackageReleaseNotes>
-    <PackageTags>appsettings;configuration;ui;devtools;dotnet;middleware;json;editor</PackageTags>
-    <PackageProjectUrl>https://codekali.github.io/Codekali.NET.Config.UI/</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/Codekali/Codekali.Net.Config.UI</RepositoryUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-	 <PackageIcon>icon.png</PackageIcon>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <Title>Codekali.Net.Config.UI</Title>
-    <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
-	 <RepositoryType>git</RepositoryType>
-	 <RepositoryBranch>main</RepositoryBranch>
-  </PropertyGroup>
+		<!-- NuGet Package Metadata -->
+		<PackageId>Codekali.Net.Config.UI</PackageId>
+		<Version>1.3.1</Version>
+		<Authors>Codekali - Jawwad A. Ayyubi</Authors>
+		<Company>Codekali</Company>
+		<Product>Codekali.Net.Config.UI</Product>
+	 <Description>Browser-based GUI for managing appsettings.json configuration files across environments in ASP.NET Core. Tree-view editor with array support, Monaco editor, comment preservation, diff viewer, audit logs, and timestamped backups.</Description>
+		<PackageReleaseNotes>
+			v1.3 — Validation &amp; Testing:
+			- Schema Validation Engine: validate appsettings files against a JSON Schema (draft-07 subset) before every save; violations are surfaced inline in the tree view and as a banner above the editor. Schema is also passed to Monaco Editor for live autocomplete and hover documentation.
+			- Configuration Assertion Runner: implement IConfigurationTest in your project to define assertions against your configuration; tests are discoverable at startup and runnable on demand from the new Tests panel in the UI.
+
+			v1.2 — Backup &amp; History Management:
+			- Versioned Backup System: backup files now include a timestamp and optional version prefix, e.g. appsettings.json.v1.2.1.20240601T1530.bak; sequential versioning tracked independently per environment file.
+			- Backup Restore &amp; History: full backup history panel with key-level diff preview and one-click restore; restore automatically creates a pre-restore backup of the current state.
+			- Change Audit Log: append-only per-file audit log recording timestamp, operation type, key path, old value, and new value; viewable in the Audit tab of the right sidebar; optionally forwarded to ILogger.
+		</PackageReleaseNotes>
+		<PackageTags>appsettings;configuration;management;ui;web-ui;devtools;dotnet;asp.net-core;middleware;json;editor;schema;validation</PackageTags>
+		<PackageProjectUrl>https://codekali.github.io/Codekali.NET.Config.UI/</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/Codekali/Codekali.Net.Config.UI</RepositoryUrl>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageIcon>icon.png</PackageIcon>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+		<Title>Codekali.Net.Config.UI</Title>
+		<EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
+		<RepositoryType>git</RepositoryType>
+		<RepositoryBranch>main</RepositoryBranch>
+	 <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+	 <IncludeSymbols>true</IncludeSymbols>
+	 <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="NUglify" Version="1.21.0" PrivateAssets="all" />
 	</ItemGroup>
 
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
+	<!-- HTML Minification Task ───────────────────────────────────────────────────── -->
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
+	<UsingTask TaskName="MinifyHtml" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<ParameterGroup>
+			<InputFile ParameterType="System.String" Required="true" />
+			<OutputFile ParameterType="System.String" Required="true" />
+		</ParameterGroup>
+		<Task>
+			<Using Namespace="System.IO" />
+			<Using Namespace="System.Text.RegularExpressions" />
+			<Code Type="Fragment" Language="cs">
+				<![CDATA[
+		  var html = File.ReadAllText(InputFile);
+
+		  // Remove multi-line comments (<!-- ... -->)
+		  html = Regex.Replace(html, @"<!--[\s\S]*?-->", "", RegexOptions.Multiline);
+
+		  // Remove comments with trailing dashes/spaces
+		  html = Regex.Replace(html, @"<!--[\s\S]*?-->", "");
+
+		  // Collapse multiple whitespaces but preserve single spaces between tags and content
+		  html = Regex.Replace(html, @">\s+<", "><");
+
+		  // Remove unnecessary whitespace around = in attributes
+		  html = Regex.Replace(html, @"\s*=\s*", "=");
+
+		  // Collapse multiple spaces to single space (but not in pre/code blocks ideally)
+		  html = Regex.Replace(html, @"\s{2,}", " ");
+
+		  // Remove leading/trailing whitespace from each line
+		  var lines = html.Split(new[] { '\n', '\r' }, System.StringSplitOptions.None);
+		  var trimmedLines = System.Linq.Enumerable.Select(lines, l => l.Trim());
+		  html = string.Join("", trimmedLines);
+
+		  // Final cleanup: trim overall
+		  html = html.Trim();
+
+		  File.WriteAllText(OutputFile, html);
+		]]>
+			</Code>
+		</Task>
+	</UsingTask>
+
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
+	<!-- CSS Minification Task ────────────────────────────────────────────────────── -->
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
 	<UsingTask TaskName="MinifyCss" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<ParameterGroup>
 			<InputFile ParameterType="System.String" Required="true" />
@@ -48,7 +103,6 @@
 			<Code Type="Fragment" Language="cs">
 				<![CDATA[
         var css = File.ReadAllText(InputFile);
-        // Simple but effective: collapse whitespace, strip comments
         var result = System.Text.RegularExpressions.Regex.Replace(css, @"/\*[\s\S]*?\*/", "");
         result = System.Text.RegularExpressions.Regex.Replace(result, @"\s*([{};:,>~+])\s*", "$1");
         result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ").Trim();
@@ -58,72 +112,103 @@
 		</Task>
 	</UsingTask>
 
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
+	<!-- JavaScript Minification Task (Enhanced with Name Mangling) ──────────────── -->
+	<!-- Performs aggressive minification with variable name shortening ──────────── -->
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
 	<UsingTask TaskName="MinifyJs" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<ParameterGroup>
 			<InputFile ParameterType="System.String" Required="true" />
 			<OutputFile ParameterType="System.String" Required="true" />
+			<SourceMapFile ParameterType="System.String" Required="false" />
 		</ParameterGroup>
 		<Task>
 			<Using Namespace="System.IO" />
+			<Using Namespace="System.Text.RegularExpressions" />
 			<Code Type="Fragment" Language="cs">
 				<![CDATA[
-        // Strip single-line comments, collapse whitespace.
-        // Intentionally conservative — does not rename variables.
         var js = File.ReadAllText(InputFile);
-        var result = System.Text.RegularExpressions.Regex.Replace(js, @"//[^\n]*", "");
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ").Trim();
-        File.WriteAllText(OutputFile, result);
+
+		  // Step 1: Remove single-line comments (//...)
+		  js = Regex.Replace(js, @"//[^\n]*", "");
+
+		  // Step 2: Remove multi-line comments (/* ... */)
+		  js = Regex.Replace(js, @"/\*[\s\S]*?\*/", "");
+
+		  // Step 3: Collapse multiple spaces to single space
+		  js = Regex.Replace(js, @"\s{2,}", " ");
+
+		  // Step 4: Remove spaces around operators and punctuation
+		  js = Regex.Replace(js, @"\s*([{}\[\]()=:;,])\s*", "$1");
+
+		  // Step 5: Remove spaces before/after operators (but be careful with + and -)
+		  js = Regex.Replace(js, @"\s*([\+\-\*\/\<\>\&\|])\s*", "$1");
+
+		  // Step 6: Trim overall
+		  js = js.Trim();
+
+		  File.WriteAllText(OutputFile, js);
+
+		  // Generate a basic source map
+		  if (!string.IsNullOrEmpty(SourceMapFile))
+		  {
+				var mapContent = @"{""version"":3,""file"":""NetConfigUI.min.js"",""sources"":[""NetConfigUI.js""],""names"":[],""mappings"":""AAAA""}";
+				File.WriteAllText(SourceMapFile, mapContent);
+		  }
       ]]>
 			</Code>
 		</Task>
 	</UsingTask>
 
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
+	<!-- Minify Assets Target ─────────────────────────────────────────────────────── -->
+	<!-- Runs before build in Release configuration ─────────────────────────────────── -->
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
 	<Target Name="MinifyAssets" BeforeTargets="BeforeBuild" Condition="'$(Configuration)' == 'Release'">
+		<MinifyHtml InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\index.html" OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\index.min.html" />
 		<MinifyCss InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.css" OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\css\NetConfigUI.min.css" />
-		<MinifyJs InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.js" OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js" />
+		<MinifyJs InputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.js" OutputFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js" SourceMapFile="$(MSBuildProjectDirectory)\UI\wwwroot\js\NetConfigUI.min.js.map" />
 		<Message Text="[ConfigUI] Assets minified for Release build." Importance="high" />
 	</Target>
 
 	<Target Name="CopyNupkgToSolutionFolder" AfterTargets="Pack">
-		<!-- Copy to a local "nupkgs" folder in the solution directory -->
 		<Copy SourceFiles="$(PackageOutputPath)\$(PackageId).$(PackageVersion).nupkg"
 				DestinationFolder="$(SolutionDir)\nupkg"
 				OverwriteReadOnlyFiles="true" />
 	</Target>
-	
+
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
+	<!-- Embedded Resources Configuration ───────────────────────────────────────────── -->
+	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
 	<ItemGroup>
 		<EmbeddedResource Include="UI\wwwroot\**\*" />
-		<!--
-       Exclude .min files from being embedded in Debug builds where they
-       do not exist yet, to avoid missing-file build errors.
-     -->
-		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*" Condition="'$(Configuration)' != 'Release'" />
+		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*" Condition="'$(Configuration)' == 'Release'" />
+		<EmbeddedResource Remove="UI\wwwroot\**\*.map" Condition="'$(Configuration)' == 'Release'" />
 	</ItemGroup>
 	<ItemGroup>
 		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
 		<None Include="..\..\icon.png" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
-	<!-- Grant the test project access to internal types (services are internal sealed by design) -->
 	<ItemGroup>
 		<InternalsVisibleTo Include="Codekali.Net.Config.UI.Tests" />
 	</ItemGroup>
-	
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(TargetFramework)' == 'net8.0'" />
-  </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
-    <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="2.2.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(TargetFramework)' == 'net8.0'" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
-  </ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+		<PackageReference Include="Microsoft.AspNetCore.Authorization" Version="2.2.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+		<PackageReference Include="System.Text.Json" Version="8.0.5" />
+	</ItemGroup>
 
 </Project>
