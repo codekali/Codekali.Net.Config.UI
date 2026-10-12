@@ -22,7 +22,7 @@ public sealed class ConfigUIOptions
 
     /// <summary>
     /// Optional access token that callers must supply via the
-    /// <c>X-Config-Token</c> request header or the <c>?token=</c> query parameter.
+    /// <c>X-Config-Token</c> request header.
     /// When left empty (the default) the UI is accessible to anyone who can reach
     /// the endpoint — rely on the <see cref="AllowedEnvironments"/> guard and
     /// network-level controls in that case.

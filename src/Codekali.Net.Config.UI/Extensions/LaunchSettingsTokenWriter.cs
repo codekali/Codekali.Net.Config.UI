@@ -159,7 +159,6 @@ internal sealed class LaunchSettingsTokenWriter(
     {
         var bytes = new byte[32];
         System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
-        // Base64Url encoding — no padding, safe for use in HTTP headers and query strings
         return Convert.ToBase64String(bytes)
             .Replace('+', '-')
             .Replace('/', '_')
