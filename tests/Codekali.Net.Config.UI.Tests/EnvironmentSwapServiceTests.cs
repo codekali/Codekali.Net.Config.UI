@@ -29,10 +29,11 @@ public class EnvironmentSwapServiceTests
         """;
 
     private static (EnvironmentSwapService svc, Mock<IConfigFileRepository> repo, Mock<IBackupService> backup)
-        BuildSut(string? sourceJson = null, string? targetJson = null)
+        BuildSut(string? sourceJson = null, string? targetJson = null, ConfigUIOptions? options = null)
     {
         var repo = new Mock<IConfigFileRepository>();
         var backup = new Mock<IBackupService>();
+        var opts = options ?? new ConfigUIOptions();
 
         repo.Setup(r => r.FileExists(It.IsAny<string>())).Returns(true);
         repo.Setup(r => r.ResolvePath(SourceFile)).Returns($"/config/{SourceFile}");
@@ -46,7 +47,7 @@ public class EnvironmentSwapServiceTests
               .ReturnsAsync(OperationResult<string>.Success("/backup/file.bak"));
 
         var svc = new EnvironmentSwapService(
-            repo.Object, backup.Object, NullLogger<EnvironmentSwapService>.Instance);
+            repo.Object, backup.Object, opts, NullLogger<EnvironmentSwapService>.Instance);
 
         return (svc, repo, backup);
     }

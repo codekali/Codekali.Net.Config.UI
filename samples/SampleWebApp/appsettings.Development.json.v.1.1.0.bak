@@ -1,0 +1,43 @@
+{
+    "Logging": {
+        "LogLevel": {
+            "Default": "Error",
+            "Microsoft.AspNetCore": "Information",
+            "Codekali": "Debug"
+        }
+    },
+    "ConnectionStrings": {
+        "Default": "Server=.;Database=MyApp;Trusted_Connection=true;" // Single Line Comment to see the test the JsonParsing
+    },
+    "AppSettings": {
+        "FeatureFlags": {
+            "EnableBetaFeatures": true /* Multi-line comment for testing */
+        }
+    },
+    // Single line out of the key-value line for testing
+    /* One more multi-line comment
+    This has to work.
+    */
+    "ExternalServices": {
+        "PaymentGateway": {
+            "ApiKey": "x",
+            "SecretKey": "dev_sk_rtywrtw4564356rgw345trge7u5e6urthsh",
+            "BaseUrl": "https://sandbox.payment-gateway.example.com",
+            "BaseIPAdress": "192.168.1.1"
+        },
+        "MCPServer": {
+            "BaseUrl": "https://mcp.production.url/",
+            "ApiKey": "fqheiy343q4bf3iyut987yzvboe8734349587wf",
+            "Secrets": "aqp9ew8htqf3unaiuvn9q3487gajnvakjnvq938hgv"
+        }
+    },
+    "Timeout": 679,
+    "Expiry": 9999,
+    "Intervals": {
+        "Array": [
+            1,
+            4,
+            99
+        ]
+    }
+}

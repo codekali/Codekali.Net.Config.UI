@@ -10,8 +10,6 @@ namespace Codekali.Net.Config.UI.Middleware
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = true,
-            // Serialize enums as strings so the browser receives "object", "string" etc.
-            // instead of integer ordinals (0, 1, 2 ...) which the JS cannot pattern-match.
             Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
         };
 
@@ -27,10 +25,7 @@ namespace Codekali.Net.Config.UI.Middleware
             if (string.IsNullOrWhiteSpace(options.AccessToken)) return true;
 
             var headerToken = request.Headers["X-Config-Token"].ToString();
-            if (headerToken == options.AccessToken) return true;
-
-            var queryToken = request.Query["token"].ToString();
-            return queryToken == options.AccessToken;
+            return headerToken == options.AccessToken;
         }
 
         public static bool IsMutationRequest(string method) =>
@@ -53,15 +48,17 @@ namespace Codekali.Net.Config.UI.Middleware
                 return true;
 
             var ext = Path.GetExtension(subPath).ToLowerInvariant();
-            return ext is ".css" or ".js" or ".ico" or ".png" or ".svg";
+            return ext is ".css" or ".js" or ".html" or ".map" or ".ico" or ".png" or ".svg";
         }
 
         public static string GetContentType(string path)
         {
             return Path.GetExtension(path).ToLowerInvariant() switch
             {
+                ".html" => "text/html; charset=utf-8",
                 ".css" => "text/css; charset=utf-8",
                 ".js" => "application/javascript; charset=utf-8",
+                ".map" => "application/json; charset=utf-8",
                 ".ico" => "image/x-icon",
                 ".png" => "image/png",
                 ".svg" => "image/svg+xml",

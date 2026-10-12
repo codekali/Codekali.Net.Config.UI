@@ -119,14 +119,26 @@ internal static class JsonHelper
 
     // ── Flatten (for diff/swap) ───────────────────────────────────────────
 
-    public static Dictionary<string, string?> Flatten(JsonObject root)
+    /// <summary>
+    /// Flattens a JSON object to a dictionary of colon-separated key paths to raw JSON values.
+    /// Arrays are emitted as a single value (the compact JSON of the whole array) rather than
+    /// being expanded per index — this prevents diff noise on array reordering and avoids
+    /// row actions inadvertently creating numeric object keys.
+    /// </summary>
+    /// <param name="root">The root JSON object to flatten.</param>
+    /// <param name="maskSensitive">
+    /// When true, values whose key name matches a sensitive pattern are replaced with
+    /// <c>"***"</c>. Use for diff display; never for copy/move operations.
+    /// </param>
+    public static Dictionary<string, string?> Flatten(JsonObject root, bool maskSensitive = false)
     {
         var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        FlattenNode(root, string.Empty, result);
+        FlattenNode(root, string.Empty, result, maskSensitive);
         return result;
     }
 
-    private static void FlattenNode(JsonNode? node, string prefix, Dictionary<string, string?> result)
+    private static void FlattenNode(
+        JsonNode? node, string prefix, Dictionary<string, string?> result, bool maskSensitive)
     {
         switch (node)
         {
@@ -134,20 +146,30 @@ internal static class JsonHelper
                 foreach (var kvp in obj)
                 {
                     var key = string.IsNullOrEmpty(prefix) ? kvp.Key : $"{prefix}:{kvp.Key}";
-                    FlattenNode(kvp.Value, key, result);
+                    FlattenNode(kvp.Value, key, result, maskSensitive);
                 }
                 break;
 
             case JsonArray arr:
-                // Flatten array items by index so diff shows per-item changes.
-                for (int i = 0; i < arr.Count; i++)
-                    FlattenNode(arr[i], $"{prefix}:{i}", result);
+                // Emit the array as a single compact JSON value instead of expanding per index.
+                // This keeps diff rows meaningful ("AllowedOrigins changed") and prevents
+                // row-action buttons from creating object keys named "0", "1", etc.
+                var isSensitiveArr = maskSensitive && IsSensitiveKey(LastSegment(prefix));
+                result[prefix] = isSensitiveArr ? "\"***\"" : arr.ToJsonString();
                 break;
 
             default:
-                result[prefix] = node?.ToJsonString();
+                var isSensitive = maskSensitive && IsSensitiveKey(LastSegment(prefix));
+                result[prefix] = isSensitive ? "\"***\"" : node?.ToJsonString();
                 break;
         }
+    }
+
+    private static string LastSegment(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+        var idx = path.LastIndexOf(':');
+        return idx < 0 ? path : path[(idx + 1)..];
     }
 
     // ── Entry tree ────────────────────────────────────────────────────────

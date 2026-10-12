@@ -1,9 +1,10 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Codekali.Net.Config.UI.Extensions;
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Codekali.Net.Config.UI.Services;
 
@@ -16,22 +17,28 @@ namespace Codekali.Net.Config.UI.Services;
 /// so that <c>//</c> and <c>/* */</c> comments in both the source and target
 /// files survive the operation. The read path (Compare, collision checks) uses
 /// <see cref="JsonHelper"/> (<c>System.Text.Json</c>).
+/// <br/><br/>
+/// <b>Backup throttling</b><br/>
+/// When <see cref="SwapRequest.SkipBackup"/> is false (the default), backups are
+/// created before every write.  When the Compare row-action buttons fire in quick
+/// succession, callers set <see cref="SwapRequest.SkipBackup"/> to true once a
+/// backup was created within <see cref="BackupThrottleSeconds"/> seconds.
 /// </remarks>
-internal sealed class EnvironmentSwapService : IEnvironmentSwapService
+internal sealed class EnvironmentSwapService(
+    IConfigFileRepository repository,
+    IBackupService backupService,
+    ConfigUIOptions options,
+    ILogger<EnvironmentSwapService> logger) : IEnvironmentSwapService
 {
-    private readonly IConfigFileRepository _repository;
-    private readonly IBackupService _backupService;
-    private readonly ILogger<EnvironmentSwapService> _logger;
+    /// <summary>
+    /// How long (in seconds) a recent backup suppresses a new one when
+    /// <see cref="SwapRequest.SkipBackup"/> is true.
+    /// </summary>
+    public const int BackupThrottleSeconds = 30;
 
-    public EnvironmentSwapService(
-        IConfigFileRepository repository,
-        IBackupService backupService,
-        ILogger<EnvironmentSwapService> logger)
-    {
-        _repository = repository;
-        _backupService = backupService;
-        _logger = logger;
-    }
+    // Tracks the last backup time per file path so the JS can choose SkipBackup=true
+    // when a backup was created within BackupThrottleSeconds.
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastBackupTime = new();
 
     /// <inheritdoc/>
     public async Task<OperationResult> ExecuteSwapAsync(
@@ -65,40 +72,35 @@ internal sealed class EnvironmentSwapService : IEnvironmentSwapService
                     $"OverwriteExisting is false: {string.Join(", ", conflicts)}");
         }
 
-        // ── Back up both files before any modification ─────────────────────
-        await _backupService.CreateBackupAsync(request.SourceFile, ct).ConfigureAwait(false);
-        await _backupService.CreateBackupAsync(request.TargetFile, ct).ConfigureAwait(false);
+        // ── Back up both files before any modification (unless throttled) ──
+        if (!request.SkipBackup)
+        {
+            await BackupIfNotThrottledAsync(request.SourceFile, ct).ConfigureAwait(false);
+            await BackupIfNotThrottledAsync(request.TargetFile, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            logger.LogDebug(
+                "SkipBackup=true on swap {Op} — caller is responsible for recent backup.",
+                request.Operation);
+        }
 
         // ── Load raw text for the comment-preserving write path ────────────
         var sourceRaw = await ReadRawAsync(request.SourceFile, ct).ConfigureAwait(false);
         var targetRaw = await ReadRawOrEmptyAsync(request.TargetFile, ct).ConfigureAwait(false);
 
         // ── Apply the operation key by key via string surgery ──────────────
-        //
-        // Strategy:
-        //   1. Extract the value JSON for each key from the System.Text.Json tree
-        //      (already parsed above for the collision check — no extra I/O).
-        //   2. Use JsonCommentPreservingWriter.SetValue to splice it into the
-        //      target raw text — comments in the target file are preserved.
-        //   3. For Move: use RemoveKey to excise the key from the source raw
-        //      text — comments in the source file are preserved.
-        //
-        // We mutate the raw strings in a loop rather than writing to disk per
-        // key, then do a single write per file at the end.
-
         foreach (var key in request.Keys)
         {
             var sourceNode = JsonHelper.GetNode(sourceRoot, key);
             if (sourceNode is null)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Key '{Key}' not found in source '{Source}' — skipping.",
                     key, request.SourceFile);
                 continue;
             }
 
-            // Serialise the value from the System.Text.Json node into a JSON
-            // string fragment that SetValue can parse back in.
             var valueJson = sourceNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 
             try
@@ -110,7 +112,7 @@ internal sealed class EnvironmentSwapService : IEnvironmentSwapService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
+                logger.LogError(ex,
                     "Failed to apply swap for key '{Key}' — operation aborted.", key);
                 return OperationResult.Failure(
                     $"Failed to process key '{key}': {ex.Message}");
@@ -118,16 +120,16 @@ internal sealed class EnvironmentSwapService : IEnvironmentSwapService
         }
 
         // ── Persist ────────────────────────────────────────────────────────
-        var targetPath = _repository.ResolvePath(request.TargetFile);
-        await _repository.WriteAllTextAsync(targetPath, targetRaw, ct).ConfigureAwait(false);
+        var targetPath = repository.ResolvePath(request.TargetFile);
+        await repository.WriteAllTextAsync(targetPath, targetRaw, ct).ConfigureAwait(false);
 
         if (request.Operation == SwapOperation.Move)
         {
-            var sourcePath = _repository.ResolvePath(request.SourceFile);
-            await _repository.WriteAllTextAsync(sourcePath, sourceRaw, ct).ConfigureAwait(false);
+            var sourcePath = repository.ResolvePath(request.SourceFile);
+            await repository.WriteAllTextAsync(sourcePath, sourceRaw, ct).ConfigureAwait(false);
         }
 
-        _logger.LogInformation(
+        logger.LogInformation(
             "Swap complete: {Op} {Count} key(s) from '{Source}' to '{Target}'",
             request.Operation, request.Keys.Count, request.SourceFile, request.TargetFile);
 
@@ -148,8 +150,12 @@ internal sealed class EnvironmentSwapService : IEnvironmentSwapService
         if (targetRoot is null)
             return OperationResult<DiffResult>.Failure(targetErr!);
 
-        var sourceFlat = JsonHelper.Flatten(sourceRoot);
-        var targetFlat = JsonHelper.Flatten(targetRoot);
+        // Flatten with sensitive value masking so secret values never appear in diff rows.
+        // The UI can call /value to reveal a specific key on demand.
+        var maskSensitive = options.MaskSensitiveValues;
+        var sourceFlat = JsonHelper.Flatten(sourceRoot, maskSensitive);
+        var targetFlat = JsonHelper.Flatten(targetRoot, maskSensitive);
+
         var allKeys = sourceFlat.Keys
             .Union(targetFlat.Keys, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -188,16 +194,35 @@ internal sealed class EnvironmentSwapService : IEnvironmentSwapService
 
     // ── Private helpers ───────────────────────────────────────────────────
 
+    private async Task BackupIfNotThrottledAsync(string fileName, CancellationToken ct)
+    {
+        var fullPath = repository.ResolvePath(fileName);
+        var now = DateTimeOffset.UtcNow;
+
+        if (_lastBackupTime.TryGetValue(fullPath, out var last) &&
+            (now - last).TotalSeconds < BackupThrottleSeconds)
+        {
+            logger.LogDebug(
+                "Backup throttled for '{File}' — last backup was {Ago:F0}s ago.",
+                fileName, (now - last).TotalSeconds);
+            return;
+        }
+
+        var result = await backupService.CreateBackupAsync(fileName, ct).ConfigureAwait(false);
+        if (result.IsSuccess)
+            _lastBackupTime[fullPath] = now;
+    }
+
     private async Task<(JsonObject? root, string? error)> LoadRootForReadAsync(
         string fileName, CancellationToken ct)
     {
-        var fullPath = _repository.ResolvePath(fileName);
-        if (!_repository.FileExists(fullPath))
+        var fullPath = repository.ResolvePath(fileName);
+        if (!repository.FileExists(fullPath))
             return (null, $"File not found: {fileName}");
 
         try
         {
-            var raw = await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+            var raw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
             var root = JsonHelper.ParseObject(raw);
             if (root is null)
                 return (null, $"'{fileName}' does not contain a valid JSON object.");
@@ -211,15 +236,15 @@ internal sealed class EnvironmentSwapService : IEnvironmentSwapService
 
     private async Task<string> ReadRawAsync(string fileName, CancellationToken ct)
     {
-        var fullPath = _repository.ResolvePath(fileName);
-        return await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
+        var fullPath = repository.ResolvePath(fileName);
+        return await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
     }
 
     private async Task<string> ReadRawOrEmptyAsync(string fileName, CancellationToken ct)
     {
-        var fullPath = _repository.ResolvePath(fileName);
-        return _repository.FileExists(fullPath)
-            ? await _repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false)
+        var fullPath = repository.ResolvePath(fileName);
+        return repository.FileExists(fullPath)
+            ? await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false)
             : "{}";
     }
 }
