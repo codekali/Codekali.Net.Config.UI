@@ -68,7 +68,7 @@ internal sealed class ConfigUIMiddleware(
             context.Response.StatusCode = 401;
             await context.Response.WriteAsync(
                 "Unauthorized — supply the correct access token via the " +
-                "X-Config-Token request header or ?token= query parameter.",
+                "X-Config-Token request header.",
                 context.RequestAborted).ConfigureAwait(false);
             return;
         }
