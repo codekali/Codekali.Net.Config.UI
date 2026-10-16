@@ -59,6 +59,15 @@ internal sealed class ConfigUIMiddleware(
             return;
         }
 
+        // ── Serve index shell before token check ──
+        // Token is embedded in the HTML itself, so it must load unauthenticated.
+        // All API calls it makes will still be authenticated via X-Config-Token header.
+        if (string.IsNullOrEmpty(subPath) || subPath.Equals("index.html", StringComparison.OrdinalIgnoreCase))
+        {
+            await configUIStaticHandler.ServeIndexHtmlAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         // ── Token guard ────────────────────────────────────────────────────
         //
         // Only active when options.AccessToken is non-empty.

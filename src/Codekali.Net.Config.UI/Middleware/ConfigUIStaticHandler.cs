@@ -21,6 +21,7 @@ namespace Codekali.Net.Config.UI.Middleware
             html = html.Replace("__CONFIG_UI_PATH_PREFIX__", _options.PathPrefix);
             html = html.Replace("__CONFIG_UI_READONLY__", _options.ReadOnly.ToString().ToLower());
             html = html.Replace("__CONFIG_UI_AUDIT_ENABLED__", _options.EnableAuditLogging.ToString().ToLower());
+            html = html.Replace("__CONFIG_UI_ACCESS_TOKEN__", _options.AccessToken ?? string.Empty);
 
             ctx.Response.ContentType = "text/html; charset=utf-8";
             await ctx.Response.WriteAsync(html, ctx.RequestAborted).ConfigureAwait(false);

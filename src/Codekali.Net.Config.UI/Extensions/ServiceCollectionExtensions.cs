@@ -3,10 +3,7 @@ using Codekali.Net.Config.UI.Middleware;
 using Codekali.Net.Config.UI.Models;
 using Codekali.Net.Config.UI.Services;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel.DataAnnotations;
 
@@ -68,6 +65,11 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>Adds the Config UI middleware to the ASP.NET Core request pipeline.</summary>
+    /// <remarks>
+    /// Placing `UseConfigUI()` after `UseAuthorization()` will result in `401 Unauthorized`
+    /// responses if your app has a default authorization policy, or unexpected behavior if
+    /// your app uses authentication middleware that rejects unauthenticated requests.
+    /// </remarks>
     public static IApplicationBuilder UseConfigUI(this IApplicationBuilder app)
     {
         var options = app.ApplicationServices.GetRequiredService<ConfigUIOptions>();
@@ -85,10 +87,12 @@ public static class ServiceCollectionExtensions
     /// Resolves the access token in priority order:
     /// <list type="number">
     ///   <item>Explicit <see cref="ConfigUIOptions.AccessToken"/> already set — used as-is.</item>
-    ///   <item><c>CONFIGUI_ACCESS_TOKEN</c> environment variable — covers production / CI and
-    ///         subsequent local runs after the token was written to <c>launchSettings.json</c>.</item>
-    ///   <item>Auto-generate a new token and persist it to <c>Properties/launchSettings.json</c>
-    ///         (Development only, first run only).</item>
+    ///   <item><c>CONFIGUI_ACCESS_TOKEN</c> user-level environment variable — used automatically
+    ///         on subsequent runs after the token was generated and persisted on first startup.</item>
+    ///   <item>Auto-generate a new token, set it in the current process, and persist it as a
+    ///         user-level environment variable so it survives restarts without any manual steps.
+    ///         Falls back to process-level only if the user-level write fails (e.g. containers,
+    ///         restricted CI environments).</item>
     /// </list>
     /// This method is intentionally only reachable when
     /// <see cref="ConfigUIOptions.EnableAutoToken"/> is <c>true</c>.
@@ -99,59 +103,47 @@ public static class ServiceCollectionExtensions
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger(nameof(ServiceCollectionExtensions));
 
-        // Priority 1 — explicit token already set in code; nothing to do.
         if (!string.IsNullOrWhiteSpace(options.AccessToken))
-        {
-            logger.LogDebug("[ConfigUI] AccessToken set explicitly — auto-token resolution skipped.");
             return;
-        }
 
-        // Priority 2 — environment variable.
-        // On the second and subsequent runs the token that was written to
-        // launchSettings.json on the first run will be present here.
-        var envToken = Environment.GetEnvironmentVariable(
-            LaunchSettingsTokenWriter.EnvironmentVariableName);
-
+        var envToken = Environment.GetEnvironmentVariable("CONFIGUI_ACCESS_TOKEN");
         if (!string.IsNullOrWhiteSpace(envToken))
         {
             options.AccessToken = envToken;
             logger.LogInformation(
-                "[ConfigUI] AccessToken loaded from environment variable '{EnvVar}'.",
-                LaunchSettingsTokenWriter.EnvironmentVariableName);
+                "[ConfigUI] Access token loaded from CONFIGUI_ACCESS_TOKEN environment variable.");
             return;
         }
 
-        // Priority 3 — generate a new token (first run, Development only).
-        var env = app.ApplicationServices.GetService<IHostEnvironment>();
-        if (env is null || !env.IsDevelopment())
+        var bytes = new byte[32];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+        var token = Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+        options.AccessToken = token;
+
+        // Set in current process immediately
+        Environment.SetEnvironmentVariable("CONFIGUI_ACCESS_TOKEN", token);
+
+        // Persist at user level so it survives restarts without developer intervention
+        try
         {
-            logger.LogWarning(
-                "[ConfigUI] EnableAutoToken is true but the current environment is '{Env}'. " +
-                "Auto-generation is only supported in Development. " +
-                "Supply '{EnvVar}' as a real environment variable or set options.AccessToken explicitly.",
-                env?.EnvironmentName ?? "unknown",
-                LaunchSettingsTokenWriter.EnvironmentVariableName);
-            return;
-        }
+            Environment.SetEnvironmentVariable(
+                "CONFIGUI_ACCESS_TOKEN",
+                token,
+                EnvironmentVariableTarget.User);
 
-        var writerLogger = app.ApplicationServices
-            .GetRequiredService<ILoggerFactory>()
-            .CreateLogger<LaunchSettingsTokenWriter>();
-
-        var writer = new LaunchSettingsTokenWriter(env.ContentRootPath, writerLogger);
-
-        var token = writer.EnsureTokenAsync(CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
-
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            options.AccessToken = token;
             logger.LogInformation(
-                "[ConfigUI] Generated access token: '{Token}'. " +
-                "Saved to Properties/launchSettings.json under '{EnvVar}'. " +
-                "Append ?token={Token} to the URL or send the X-Config-Token header.",
-                token, LaunchSettingsTokenWriter.EnvironmentVariableName, token);
+                "[ConfigUI] Generated access token and persisted to user-level environment variable " +
+                "'CONFIGUI_ACCESS_TOKEN'. Token is active immediately and will persist across restarts.");
+        }
+        catch (Exception ex)
+        {
+            // User-level env var write can fail on restricted environments (containers, some CI systems)
+            // Fall back to process-level only — token works this run but won't survive restart
+            logger.LogWarning(
+                "[ConfigUI] Could not persist token to user-level environment variable: {Reason}. " +
+                "Token is active this run only. Set CONFIGUI_ACCESS_TOKEN manually for persistence.",
+                ex.Message);
         }
     }
 }

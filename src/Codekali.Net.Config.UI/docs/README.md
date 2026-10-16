@@ -48,7 +48,7 @@ builder.Services.AddConfigUI(options =>
     options.PathPrefix               = "/config-ui";
     options.AccessToken              = "your-secret-token";
     options.AuthorizationPolicy      = "ConfigUIAccess";        // OR use AccessToken, not both
-    options.AllowedEnvironments      = ["Development", "Staging"];
+    options.AllowedEnvironments      = ["Development", "Staging"];   // defaults to ["Development"]
     options.MaskSensitiveValues      = true;
     options.ReadOnly                 = false;
     options.EnableAutoToken          = false;
@@ -62,14 +62,30 @@ builder.Services.AddConfigUI(options =>
 
 ### Access token
 
-Passed via header `X-Config-Token: <token>` or query string `?token=<token>`.
+Passed via header `X-Config-Token: <token>`.
 
-### Auto token generation
+### Auto Token (Development)
 
 ```csharp
-builder.Services.AddConfigUI(options => options.EnableAutoToken = true);
-// Generates a token on first run and writes it to Properties/launchSettings.json
-// as CONFIGUI_ACCESS_TOKEN. Subsequent runs load it from the environment variable.
+builder.Services.AddConfigUI(o => o.EnableAutoToken = true);
+```
+
+A cryptographically random token is generated on first startup, persisted as a
+**user-level environment variable** (`CONFIGUI_ACCESS_TOKEN`) automatically, and
+reused on every subsequent restart. The token is active immediately — no manual
+steps required.
+
+If the user-level environment variable cannot be written (containers, restricted CI
+environments), the token is active for the current run only and a warning is logged.
+Set `CONFIGUI_ACCESS_TOKEN` manually in those environments for persistence.
+
+Avoid storing the token in `appsettings.json` or `appsettings.Development.json` —
+those files are managed by this library and should never contain secrets.
+
+### Explicit Token
+
+```csharp
+builder.Services.AddConfigUI(o => o.AccessToken = "your-secret-token");
 ```
 
 ### ASP.NET Core Authorization policy
@@ -83,6 +99,28 @@ builder.Services.AddConfigUI(options =>
 ```
 
 ---
+
+## Middleware Order
+
+Config UI must be registered **before** `UseAuthentication()` and `UseAuthorization()`
+in your pipeline. Config UI handles its own token-based authentication internally and
+does not participate in ASP.NET Core's auth pipeline.
+
+```csharp
+app.UseCors();
+
+app.UseConfigUI(); // ← must come before auth
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+```
+---
+
+Placing `UseConfigUI()` after `UseAuthorization()` will result in `401 Unauthorized`
+responses if your app has a default authorization policy, or unexpected behavior if
+your app uses authentication middleware that rejects unauthenticated requests.
 
 ## Schema Validation
 

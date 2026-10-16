@@ -1,0 +1,9 @@
+﻿
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <CONFIGUI_TEST_URL>http://localhost:57990</CONFIGUI_TEST_URL>
+      <ASPNETCORE_ENVIRONMENT>Development</ASPNETCORE_ENVIRONMENT>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>
