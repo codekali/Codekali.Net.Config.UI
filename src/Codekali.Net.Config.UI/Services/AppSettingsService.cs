@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Codekali.Net.Config.UI.Extensions;
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
+using Codekali.Net.Config.UI.Models.Constants;
 using Microsoft.Extensions.Logging;
 
 namespace Codekali.Net.Config.UI.Services;
@@ -11,7 +12,7 @@ namespace Codekali.Net.Config.UI.Services;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Read path</b> — uses <see cref="JsonHelper"/> (<c>System.Text.Json</c>).
+/// <b>Read path</b> — uses <see cref="JsonPatchHelper"/> (<c>System.Text.Json</c>).
 /// Fast, allocation-efficient, no third-party dependency.
 /// </para>
 /// <para>
@@ -76,12 +77,12 @@ internal sealed class AppSettingsService(
             return OperationResult<IReadOnlyList<ConfigEntry>>.Failure(rawResult.Error!);
 
         // Read path: System.Text.Json — fast, no Newtonsoft dependency for reads.
-        var root = JsonHelper.ParseObject(rawResult.Value!);
+        var root = JsonPatchHelper.ParseObject(rawResult.Value!);
         if (root is null)
             return OperationResult<IReadOnlyList<ConfigEntry>>.Failure(
                 $"'{fileName}' does not contain a valid JSON object.");
 
-        var entries = JsonHelper.ToEntryTree(root, fileName, options.MaskSensitiveValues);
+        var entries = JsonPatchHelper.ToEntryTree(root, fileName, options.MaskSensitiveValues);
         return OperationResult<IReadOnlyList<ConfigEntry>>.Success(entries);
     }
 
@@ -123,7 +124,7 @@ internal sealed class AppSettingsService(
             var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            if (JsonHelper.GetNode(root, keyPath) is not null)
+            if (JsonPatchHelper.GetNode(root, keyPath) is not null)
                 return OperationResult.Failure(
                     $"Key '{keyPath}' already exists in '{fileName}'. Use Update to change its value.");
 
@@ -159,11 +160,11 @@ internal sealed class AppSettingsService(
             var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            if (JsonHelper.GetNode(root, keyPath) is null)
+            if (JsonPatchHelper.GetNode(root, keyPath) is null)
                 return OperationResult.Failure(
                     $"Key '{keyPath}' does not exist in '{fileName}'. Use Add to create it.");
 
-            var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            var oldVal = JsonPatchHelper.GetNode(root, keyPath)?.ToJsonString();
             if (oldVal is not null && oldVal.Equals(jsonValue)) return OperationResult.Success();
             var result = await PersistMutationAsync(
                 fileName,
@@ -197,11 +198,11 @@ internal sealed class AppSettingsService(
             var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            if (JsonHelper.GetNode(root, keyPath) is null)
+            if (JsonPatchHelper.GetNode(root, keyPath) is null)
                 return OperationResult.Failure(
                     $"Key '{keyPath}' does not exist in '{fileName}'.");
 
-            var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            var oldVal = JsonPatchHelper.GetNode(root, keyPath)?.ToJsonString();
             var result = await PersistMutationAsync(
                 fileName,
                 raw => JsonCommentPreservingWriter.RemoveKey(raw, keyPath),
@@ -315,7 +316,7 @@ internal sealed class AppSettingsService(
             return (null, $"File not found: {fileName}");
 
         var raw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
-        var root = JsonHelper.ParseObject(raw);
+        var root = JsonPatchHelper.ParseObject(raw);
         if (root is null)
             return (null, $"'{fileName}' does not contain a valid JSON object.");
 
@@ -334,7 +335,7 @@ internal sealed class AppSettingsService(
         if (!options.EnableAuditLogging) return;   // skip parse work when auditing is off
 
         // Parse both sides; fall back to the coarse SaveRaw entry on parse failure.
-        var newRoot = JsonHelper.ParseObject(newRaw);
+        var newRoot = JsonPatchHelper.ParseObject(newRaw);
         if (newRoot is null)
         {
             await auditService.RecordAsync(fileName, AuditOperation.SaveRaw, "*", null, newRaw, ct)
@@ -344,11 +345,11 @@ internal sealed class AppSettingsService(
 
         JsonObject? oldRoot = null;
         if (!string.IsNullOrWhiteSpace(oldRaw))
-            oldRoot = JsonHelper.ParseObject(oldRaw);
+            oldRoot = JsonPatchHelper.ParseObject(oldRaw);
 
-        var newFlat = JsonHelper.Flatten(newRoot, maskSensitive: false);
+        var newFlat = JsonPatchHelper.Flatten(newRoot, maskSensitive: false);
         var oldFlat = oldRoot is not null
-            ? JsonHelper.Flatten(oldRoot, maskSensitive: false)
+            ? JsonPatchHelper.Flatten(oldRoot, maskSensitive: false)
             : new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
         // Keys added or updated
@@ -381,7 +382,7 @@ internal sealed class AppSettingsService(
             var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            var existing = JsonHelper.GetNode(root, keyPath);
+            var existing = JsonPatchHelper.GetNode(root, keyPath);
             if (existing is not null && existing is not System.Text.Json.Nodes.JsonArray)
                 return OperationResult.Failure(
                     $"'{keyPath}' already exists and is not an array. Use Update to replace it.");
@@ -413,7 +414,7 @@ internal sealed class AppSettingsService(
             var (root, loadError) = await LoadRootForReadAsync(fileName, ct).ConfigureAwait(false);
             if (root is null) return OperationResult.Failure(loadError!);
 
-            var existing = JsonHelper.GetNode(root, keyPath);
+            var existing = JsonPatchHelper.GetNode(root, keyPath);
             if (existing is null)
                 return OperationResult.Failure($"Key '{keyPath}' not found.");
             if (existing is not System.Text.Json.Nodes.JsonArray arr)
@@ -422,7 +423,7 @@ internal sealed class AppSettingsService(
                 return OperationResult.Failure(
                     $"Index {index} is out of range (array has {arr.Count} items).");
 
-            var oldVal = JsonHelper.GetNode(root, keyPath)?.ToJsonString();
+            var oldVal = JsonPatchHelper.GetNode(root, keyPath)?.ToJsonString();
             var result = await PersistMutationAsync(fileName, raw =>
             {
                 var (result, error) = JsonCommentPreservingWriter.RemoveFromArray(raw, keyPath, index);
@@ -444,18 +445,15 @@ internal sealed class AppSettingsService(
 
     private static string ExtractEnvironment(string fileName)
     {
-        const string prefix = "appsettings.";
-        const string suffix = ".json";
-
-        if (!fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        if (!fileName.StartsWith(ConfigUIConstants.AppsettingsFileName.Prefix, StringComparison.OrdinalIgnoreCase))
             return "Unknown";
 
-        var middle = fileName[prefix.Length..];
-        if (middle.Equals(suffix.TrimStart('.'), StringComparison.OrdinalIgnoreCase))
+        var middle = fileName[ConfigUIConstants.AppsettingsFileName.Prefix.Length..];
+        if (middle.Equals(ConfigUIConstants.AppsettingsFileName.Extension.TrimStart('.'), StringComparison.OrdinalIgnoreCase))
             return "Base";
 
-        return middle.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-            ? middle[..^suffix.Length]
+        return middle.EndsWith(ConfigUIConstants.AppsettingsFileName.Extension, StringComparison.OrdinalIgnoreCase)
+            ? middle[..^ConfigUIConstants.AppsettingsFileName.Extension.Length]
             : middle;
     }
 }

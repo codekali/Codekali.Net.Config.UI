@@ -8,7 +8,7 @@ namespace Codekali.Net.Config.UI.Services;
 /// Internal utility methods for JSON parsing, path resolution, and value classification.
 /// All methods are pure functions with no I/O side-effects.
 /// </summary>
-internal static class JsonHelper
+internal static class JsonPatchHelper
 {
     private static readonly JsonSerializerOptions _writeOptions = new() { WriteIndented = true };
 
@@ -47,6 +47,11 @@ internal static class JsonHelper
         catch (JsonException) { return null; }
     }
 
+    /// <summary>
+    /// Serializes a <see cref="JsonNode"/> to a compact JSON string with indentation.
+    /// </summary>
+    /// <param name="node">The JSON node to serialize.</param>
+    /// <returns>A JSON string representation of the node.</returns>
     public static string Serialize(JsonNode node) => node.ToJsonString(_writeOptions);
 
     /// <summary>
@@ -89,6 +94,13 @@ internal static class JsonHelper
         return current;
     }
 
+    /// <summary>
+    /// Sets a value at a colon-separated path on a <see cref="JsonObject"/>, creating intermediate objects as needed.
+    /// </summary>
+    /// <param name="root"></param>
+    /// <param name="path"></param>
+    /// <param name="value"></param>
+    /// <returns></returns>
     public static bool SetNode(JsonObject root, string path, JsonNode? value)
     {
         var segments = SplitPath(path);
@@ -109,6 +121,12 @@ internal static class JsonHelper
         return true;
     }
 
+    /// <summary>
+    /// Removes a value at a colon-separated path on a <see cref="JsonObject"/>.
+    /// </summary>
+    /// <param name="root"></param>
+    /// <param name="path"></param>
+    /// <returns></returns>
     public static bool RemoveNode(JsonObject root, string path)
     {
         var segments = SplitPath(path);
@@ -174,6 +192,13 @@ internal static class JsonHelper
 
     // ── Entry tree ────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Generates a hierarchical list of configuration entries from a JSON object.
+    /// </summary>
+    /// <param name="root">The JSON object containing key-value pairs to convert.</param>
+    /// <param name="sourceFile">The name of the source file associated with the JSON object.</param>
+    /// <param name="maskSensitive">true to mask sensitive information in the entries; otherwise, false.</param>
+    /// <returns>A list of configuration entries representing the JSON object.</returns>
     public static List<ConfigEntry> ToEntryTree(
         JsonObject root, string sourceFile, bool maskSensitive)
     {
@@ -332,7 +357,7 @@ internal static class JsonHelper
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    public static string[] SplitPath(string path) =>
+    private static string[] SplitPath(string path) =>
         path.Split(':', StringSplitOptions.RemoveEmptyEntries);
 
     private static ConfigValueType ClassifyScalar(JsonValue val)

@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
+using Codekali.Net.Config.UI.Models.Constants;
 using Microsoft.Extensions.Logging;
 
 namespace Codekali.Net.Config.UI.Services;
@@ -77,12 +78,10 @@ internal sealed class AuditService(
 
     private static string ExtractEnvironment(string fileName)
     {
-        const string prefix = "appsettings.";
-        const string suffix = ".json";
-        if (!fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return "Unknown";
-        var middle = fileName[prefix.Length..];
+        if (!fileName.StartsWith(ConfigUIConstants.AppsettingsFileName.Prefix, StringComparison.OrdinalIgnoreCase)) return "Unknown";
+        var middle = fileName[ConfigUIConstants.AppsettingsFileName.Prefix.Length..];
         if (middle.Equals("json", StringComparison.OrdinalIgnoreCase)) return "Base";
-        return middle.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-            ? middle[..^suffix.Length] : middle;
+        return middle.EndsWith(ConfigUIConstants.AppsettingsFileName.Extension, StringComparison.OrdinalIgnoreCase)
+            ? middle[..^ConfigUIConstants.AppsettingsFileName.Extension.Length] : middle;
     }
 }

@@ -1,5 +1,6 @@
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
+using Codekali.Net.Config.UI.Models.Constants;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -24,8 +25,8 @@ internal sealed class BackupService(IConfigFileRepository repository,
                 return OperationResult<string>.Failure($"Cannot back up '{fileName}': file does not exist.");
 
             // e.g. appsettings.json.20240101T153045.bak
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmss");
-            var backupPath = sourcePath + $".{timestamp}.bak";
+            var timestamp = DateTime.UtcNow.ToString(ConfigUIConstants.BackupFileName.TimestampFormat);
+            var backupPath = sourcePath + $".{timestamp}{ConfigUIConstants.BackupFileName.Extension}";
             var fullBackupPath = ResolveBackupPath(backupPath);
             await repository.CopyFileAsync(sourcePath, fullBackupPath, ct).ConfigureAwait(false);
 
@@ -107,9 +108,9 @@ internal sealed class BackupService(IConfigFileRepository repository,
             var safeName = string.Concat(backupName
                 .Where(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '_'));
             if (string.IsNullOrWhiteSpace(safeName))
-                safeName = DateTime.UtcNow.ToString("yyyyMMddTHHmmss");
+                safeName = DateTime.UtcNow.ToString(ConfigUIConstants.BackupFileName.TimestampFormat);
 
-            var backupPath = sourcePath + $".{safeName}.bak";
+            var backupPath = sourcePath + $".{safeName}{ConfigUIConstants.BackupFileName.Extension}";
             var fullBackupPath = ResolveBackupPath(backupPath);
             await repository.CopyFileAsync(sourcePath, fullBackupPath, ct).ConfigureAwait(false);
             logger.LogInformation("Named backup created: {BackupPath}", fullBackupPath);
@@ -145,7 +146,7 @@ internal sealed class BackupService(IConfigFileRepository repository,
             var idx = seg.IndexOf(pattern, StringComparison.OrdinalIgnoreCase);
             if (idx < 0) continue;
             var after = seg[(idx + pattern.Length)..]; // "3.bak"
-            var dotBak = after.IndexOf(".bak", StringComparison.OrdinalIgnoreCase);
+            var dotBak = after.IndexOf(ConfigUIConstants.BackupFileName.Extension, StringComparison.OrdinalIgnoreCase);
             if (dotBak < 0) continue;
             if (int.TryParse(after[..dotBak], out var minor) && minor > maxMinor)
                 maxMinor = minor;

@@ -16,7 +16,7 @@ namespace Codekali.Net.Config.UI.Services;
 /// The write path (Move and Copy) uses <see cref="JsonCommentPreservingWriter"/>
 /// so that <c>//</c> and <c>/* */</c> comments in both the source and target
 /// files survive the operation. The read path (Compare, collision checks) uses
-/// <see cref="JsonHelper"/> (<c>System.Text.Json</c>).
+/// <see cref="JsonPatchHelper"/> (<c>System.Text.Json</c>).
 /// <br/><br/>
 /// <b>Backup throttling</b><br/>
 /// When <see cref="SwapRequest.SkipBackup"/> is false (the default), backups are
@@ -63,7 +63,7 @@ internal sealed class EnvironmentSwapService(
         if (!request.OverwriteExisting)
         {
             var conflicts = request.Keys
-                .Where(key => JsonHelper.GetNode(targetRoot, key) is not null)
+                .Where(key => JsonPatchHelper.GetNode(targetRoot, key) is not null)
                 .ToList();
 
             if (conflicts.Count > 0)
@@ -92,7 +92,7 @@ internal sealed class EnvironmentSwapService(
         // ── Apply the operation key by key via string surgery ──────────────
         foreach (var key in request.Keys)
         {
-            var sourceNode = JsonHelper.GetNode(sourceRoot, key);
+            var sourceNode = JsonPatchHelper.GetNode(sourceRoot, key);
             if (sourceNode is null)
             {
                 logger.LogWarning(
@@ -153,8 +153,8 @@ internal sealed class EnvironmentSwapService(
         // Flatten with sensitive value masking so secret values never appear in diff rows.
         // The UI can call /value to reveal a specific key on demand.
         var maskSensitive = options.MaskSensitiveValues;
-        var sourceFlat = JsonHelper.Flatten(sourceRoot, maskSensitive);
-        var targetFlat = JsonHelper.Flatten(targetRoot, maskSensitive);
+        var sourceFlat = JsonPatchHelper.Flatten(sourceRoot, maskSensitive);
+        var targetFlat = JsonPatchHelper.Flatten(targetRoot, maskSensitive);
 
         var allKeys = sourceFlat.Keys
             .Union(targetFlat.Keys, StringComparer.OrdinalIgnoreCase)
@@ -186,7 +186,7 @@ internal sealed class EnvironmentSwapService(
             return OperationResult<IReadOnlyList<string>>.Failure(targetErr!);
 
         var conflicts = keys
-            .Where(key => JsonHelper.GetNode(targetRoot, key) is not null)
+            .Where(key => JsonPatchHelper.GetNode(targetRoot, key) is not null)
             .ToList();
 
         return OperationResult<IReadOnlyList<string>>.Success(conflicts);
@@ -223,7 +223,7 @@ internal sealed class EnvironmentSwapService(
         try
         {
             var raw = await repository.ReadAllTextAsync(fullPath, ct).ConfigureAwait(false);
-            var root = JsonHelper.ParseObject(raw);
+            var root = JsonPatchHelper.ParseObject(raw);
             if (root is null)
                 return (null, $"'{fileName}' does not contain a valid JSON object.");
             return (root, null);

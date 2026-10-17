@@ -1,5 +1,6 @@
 using Codekali.Net.Config.UI.Interfaces;
 using Codekali.Net.Config.UI.Models;
+using Codekali.Net.Config.UI.Models.Constants;
 using Microsoft.Extensions.Logging;
 
 namespace Codekali.Net.Config.UI.Services;
@@ -22,9 +23,9 @@ internal sealed class ConfigFileRepository(ConfigUIOptions options, ILogger<Conf
         }
 
         return Directory
-            .EnumerateFiles(_configDirectory, "appsettings*.json", SearchOption.TopDirectoryOnly)
+            .EnumerateFiles(_configDirectory, $"{ConfigUIConstants.AppsettingsFileName.Prefix}*{ConfigUIConstants.AppsettingsFileName.Extension}", SearchOption.TopDirectoryOnly)
             .Where(f => !Path.GetFileName(f).Contains(".audit.", StringComparison.OrdinalIgnoreCase)
-                     && !f.EndsWith(".bak", StringComparison.OrdinalIgnoreCase))
+                     && !f.EndsWith(ConfigUIConstants.BackupFileName.Extension, StringComparison.OrdinalIgnoreCase))
             .OrderBy(f => f);
     }
 
@@ -68,7 +69,7 @@ internal sealed class ConfigFileRepository(ConfigUIOptions options, ILogger<Conf
         Directory
             .EnumerateFiles(
                 Path.GetDirectoryName(fullPath) ?? _configDirectory,
-                Path.GetFileName(fullPath) + ".*.bak",
+                Path.GetFileName(fullPath) + ".*" + ConfigUIConstants.BackupFileName.Extension,
                 SearchOption.TopDirectoryOnly)
                 .Select(x => Path.GetFileName(x))
                 .OrderByDescending(f => f);

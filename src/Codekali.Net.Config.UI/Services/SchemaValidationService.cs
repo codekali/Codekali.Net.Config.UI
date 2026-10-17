@@ -46,7 +46,7 @@ internal sealed class SchemaValidationService : ISchemaValidationService
         await EnsureLoadedAsync(ct).ConfigureAwait(false);
         if (_schemaRoot is null) return [];
 
-        var doc = JsonHelper.ParseObject(rawJson);
+        var doc = JsonPatchHelper.ParseObject(rawJson);
         if (doc is null)
             return [new SchemaViolation { KeyPath = "$", Message = "Document is not a valid JSON object.", Keyword = "type", Severity = "error" }];
 

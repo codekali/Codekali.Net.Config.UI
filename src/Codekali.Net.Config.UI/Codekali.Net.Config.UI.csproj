@@ -174,9 +174,7 @@
 	</Target>
 
 	<Target Name="CopyNupkgToSolutionFolder" AfterTargets="Pack">
-		<Copy SourceFiles="$(PackageOutputPath)\$(PackageId).$(PackageVersion).nupkg"
-				DestinationFolder="$(SolutionDir)\nupkg"
-				OverwriteReadOnlyFiles="true" />
+		<Copy SourceFiles="$(PackageOutputPath)\$(PackageId).$(PackageVersion).nupkg" DestinationFolder="$(SolutionDir)\nupkg" OverwriteReadOnlyFiles="true" />
 	</Target>
 
 	<!-- ═════════════════════════════════════════════════════════════════════════════ -->

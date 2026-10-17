@@ -281,7 +281,7 @@ namespace Codekali.Net.Config.UI.Middleware
             var rawResult = await _appSettings.GetRawJsonAsync(fileName, ctx.RequestAborted).ConfigureAwait(false);
             if (!rawResult.IsSuccess) { await RespondAsync(ctx, rawResult).ConfigureAwait(false); return; }
 
-            var root = JsonHelper.ParseObject(rawResult.Value!);
+            var root = JsonPatchHelper.ParseObject(rawResult.Value!);
             if (root is null)
             {
                 ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -290,7 +290,7 @@ namespace Codekali.Net.Config.UI.Middleware
                 return;
             }
 
-            var node = JsonHelper.GetNode(root, keyPath);
+            var node = JsonPatchHelper.GetNode(root, keyPath);
             if (node is null)
             {
                 ctx.Response.StatusCode = 404;
