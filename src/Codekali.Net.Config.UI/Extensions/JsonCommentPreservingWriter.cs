@@ -144,7 +144,7 @@ internal static class JsonCommentPreservingWriter
         // value start reliably, regardless of the column offset.
         int lineBegin = LineStart(source, lineInfo.LineNumber);
 
-        int colon = source.IndexOf(':', lineBegin);
+        int colon = FindValueColon(source, lineBegin);
         if (colon < 0) return source;
 
         int valueStart = colon + 1;
@@ -437,6 +437,29 @@ internal static class JsonCommentPreservingWriter
         }
 
         return source.Length;
+    }
+
+    /// <summary>
+    /// Finds the key/value separator <c>:</c> starting at <paramref name="from"/>,
+    /// ignoring any <c>:</c> characters inside quoted strings or comments
+    /// (e.g. <c>/* note: x */ "Url": "http://a"</c>). Returns -1 if not found.
+    /// </summary>
+    private static int FindValueColon(string source, int from)
+    {
+        int i = from;
+        while (i < source.Length)
+        {
+            char c = source[i];
+            if (c == '"') { i = SkipString(source, i); continue; }
+            if (c == '/' && i + 1 < source.Length)
+            {
+                if (source[i + 1] == '/') { i = SkipLineComment(source, i); continue; }
+                if (source[i + 1] == '*') { i = SkipBlockComment(source, i); continue; }
+            }
+            if (c == ':') return i;
+            i++;
+        }
+        return -1;
     }
 
     private static int SkipString(string s, int i)

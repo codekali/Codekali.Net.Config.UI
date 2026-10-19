@@ -16,7 +16,7 @@
             <span class="header-badge" id="env-badge">dev</span>
             <span class="ro-badge hidden" id="readonly-badge">READ ONLY</span>
             <div class="header-actions">
-                <button class="btn btn-ghost btn-sm" title="Toggle theme" onclick="toggleTheme()">🌙</button>
+                <button class="btn btn-ghost btn-sm" title="Toggle theme" aria-label="Toggle theme" onclick="toggleTheme()">🌙</button>
                 <a class="btn btn-ghost btn-sm" href="https://github.com/Codekali" target="_blank">GitHub</a>
             </div>
         </header>
@@ -305,7 +305,7 @@
                     <div class="right-sidebar-inner">
                         <div class="right-sidebar-header">
                             <span id="rs-file-label" class="rs-file-label">—</span>
-                            <button class="btn btn-ghost btn-sm" onclick="closeRightSidebar()" title="Close">✕</button>
+                            <button class="btn btn-ghost btn-sm" onclick="closeRightSidebar()" title="Close" aria-label="Close panel">✕</button>
                         </div>
                         <div class="rs-tabs">
                             <button class="rs-tab active" id="rs-tab-backups" onclick="setRsTab('backups')">💾 Backups</button>
@@ -316,7 +316,7 @@
                         <div class="rs-panel" id="rs-panel-backups">
                             <div class="rs-actions">
                                 <button class="btn btn-warn btn-sm" onclick="promptNamedBackup()">+ New Backup</button>
-                                <button class="btn btn-ghost btn-sm" onclick="loadRightSidebar()">↻</button>
+                                <button class="btn btn-ghost btn-sm" onclick="loadRightSidebar()" title="Refresh backups" aria-label="Refresh backups">↻</button>
                             </div>
                             <div id="backup-list" class="rs-list">
                                 <div class="rs-empty">No backups yet.</div>

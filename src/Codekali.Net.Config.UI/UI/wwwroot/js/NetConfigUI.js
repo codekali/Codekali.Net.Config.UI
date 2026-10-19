@@ -323,17 +323,17 @@ function renderNode(node, depth, parentPath) {
       if (isArr) {
          actions = `<span class="row-actions">
             <button class="btn btn-secondary btn-sm" onclick="promptAppendArrayItem('${escAttr(fullPath)}',event)" title="Append item">+ item</button>
-            <button class="btn btn-danger btn-sm"    onclick="confirmDelete('${escAttr(fullPath)}',event)" title="Delete array">✕</button>
+            <button class="btn btn-danger btn-sm"    onclick="confirmDelete('${escAttr(fullPath)}',event)" title="Delete array" aria-label="Delete array">✕</button>
          </span>`;
       } else if (isArrItem) {
          const parentArr = parentPath;
          const idx = node.arrayIndex ?? parseInt(node.key, 10);
          actions = `<span class="row-actions">
-            <button class="btn btn-danger btn-sm" onclick="confirmDeleteArrayItem('${escAttr(parentArr)}',${idx},event)" title="Remove item">✕</button>
+            <button class="btn btn-danger btn-sm" onclick="confirmDeleteArrayItem('${escAttr(parentArr)}',${idx},event)" title="Remove item" aria-label="Remove item">✕</button>
          </span>`;
       } else {
          actions = `<span class="row-actions">
-            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)">✕</button>
+            <button class="btn btn-danger btn-sm" onclick="confirmDelete('${escAttr(fullPath)}',event)" title="Delete key" aria-label="Delete key">✕</button>
          </span>`;
       }
    }
@@ -976,9 +976,9 @@ async function loadBackupList() {
                 <span class="backup-date">${escHtml(date)}</span>
             </div>
             <div class="backup-item-actions">
-                <button class="btn btn-ghost btn-sm" title="Diff" onclick='showDiffModal("${name}")'>⊞</button>
-                <button class="btn btn-secondary btn-sm" title="Restore" onclick='confirmRestore("${name}")'>↩</button>
-                <button class="btn btn-danger btn-sm" title="Delete" onclick='confirmDeleteBackup("${name}")'>✕</button>
+                <button class="btn btn-ghost btn-sm" title="Diff" aria-label="Diff backup" onclick='showDiffModal("${name}")'>⊞</button>
+                <button class="btn btn-secondary btn-sm" title="Restore" aria-label="Restore backup" onclick='confirmRestore("${name}")'>↩</button>
+                <button class="btn btn-danger btn-sm" title="Delete" aria-label="Delete backup" onclick='confirmDeleteBackup("${name}")'>✕</button>
             </div>
         </div>`;
    }).join('');
@@ -1044,6 +1044,9 @@ function confirmRestore(backupName) {
       `Restore <strong>${escHtml(currentFile.fileName)}</strong> from backup <strong class="monospace">${escHtml(label)}</strong>?
         <br><br><span style="color:var(--yellow);font-size:12px">⚠ The current file will be backed up automatically before restoring.</span>`,
       async () => {
+         const list = document.getElementById('backup-list');
+         if (list) list.innerHTML = '<div class="loading-center" style="height:80px" role="status" aria-label="Restoring backup"><div class="spinner"></div></div>';
+         toast('Restoring backup…', 'warn', 1500);
          const r = await api('POST', `/files/${enc(currentFile.fileName)}/backup/restore`,
             { backupPath: backupName });
          if (r.success) {
@@ -1212,6 +1215,27 @@ function toggleAuditGroup(id) {
    if (tog) tog.textContent = el.classList.contains('hidden') ? '▸' : '▾';
 }
 
+// ── Keyboard shortcut help (?) ────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+   if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
+   const t = e.target;
+   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || (t.closest && t.closest('.monaco-editor')))) return;
+   e.preventDefault();
+   showShortcutHelp();
+});
+
+function showShortcutHelp() {
+   const rows = [
+      ['?', 'Show this help'],
+      ['Ctrl + S', 'Save (Raw JSON editor)'],
+      ['Shift + Alt + F', 'Format JSON (Raw JSON editor)'],
+      ['Enter', 'Save inline edit'],
+      ['Ctrl + Enter', 'Save multi-line inline edit'],
+      ['Escape', 'Cancel inline edit']
+   ].map(([k, d]) => `<tr><td style="padding:4px 12px 4px 0"><kbd class="monospace">${escHtml(k)}</kbd></td><td>${escHtml(d)}</td></tr>`).join('');
+   showModal('Keyboard shortcuts', `<table>${rows}</table>`, () => { });
+}
+
 // ── Right sidebar resizer ─────────────────────────────────────────────────
 (function initResizer() {
    document.addEventListener('DOMContentLoaded', () => {
@@ -1260,7 +1284,7 @@ async function validateCurrentFile() {
    banner.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:12px;font-weight:600;color:var(--red);flex-shrink:0">⚠ Schema violations:</span>
         ${items}
-        <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="document.getElementById('schema-violations').classList.add('hidden')">✕</button>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto" aria-label="Dismiss schema violations" onclick="document.getElementById('schema-violations').classList.add('hidden')">✕</button>
     </div>`;
    banner.classList.remove('hidden');
 }

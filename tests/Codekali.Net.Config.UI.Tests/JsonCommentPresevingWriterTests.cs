@@ -40,6 +40,15 @@ public class JsonCommentPreservingWriterTests
         """;
 
     [Fact]
+    public void SetValue_IgnoresColonInsideLeadingCommentOnSameLine()
+    {
+        const string json = "{\n  /* note: legacy */ \"Url\": \"http://a\"\n}";
+        var result = JsonCommentPreservingWriter.SetValue(json, "Url", "\"http://b\"");
+        result.Should().Contain("/* note: legacy */");
+        result.Should().Contain("\"Url\": \"http://b\"");
+    }
+
+    [Fact]
     public void SetValue_UpdatesScalarValue()
     {
         var result = JsonCommentPreservingWriter.SetValue(SimpleJson, "AllowedHosts", "\"localhost\"");
