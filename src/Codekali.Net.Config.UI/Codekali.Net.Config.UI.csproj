@@ -182,8 +182,8 @@
 	<!-- ═════════════════════════════════════════════════════════════════════════════ -->
 	<ItemGroup>
 		<EmbeddedResource Include="UI\wwwroot\**\*" />
-		<EmbeddedResource Remove="UI\wwwroot\**\*.min.*" Condition="'$(Configuration)' == 'Release'" />
-		<EmbeddedResource Remove="UI\wwwroot\**\*.map" Condition="'$(Configuration)' == 'Release'" />
+		<EmbeddedResource Include="UI\wwwroot\**\*.min.*" Condition="'$(Configuration)' == 'Release'" />
+		<EmbeddedResource Include="UI\wwwroot\**\*.map" Condition="'$(Configuration)' == 'Release'" />
 	</ItemGroup>
 	<ItemGroup>
 		<None Include="docs\README.md" Pack="true" PackagePath="\" />

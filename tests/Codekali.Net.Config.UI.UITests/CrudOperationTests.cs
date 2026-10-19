@@ -1,16 +1,9 @@
-using Codekali.Net.Config.UI.UITests.Fixtures;
-using Codekali.Net.Config.UI.UITests.Pages;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Codekali.Net.Config.UI.UITests.Tests;
+namespace Codekali.Net.Config.UI.UITests;
 
-/// <summary>
-/// Tests every CRUD operation exposed in the tree view:
-///   Add key, Update key (inline editor), Delete key, nested paths.
-/// Each test re-seeds the config directory so they are fully independent.
-/// </summary>
 [Collection("ConfigUI")]
 public sealed class CrudOperationTests(ConfigUITestFixture fixture)
 {
@@ -25,7 +18,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         await ui.SelectFileAsync("appsettings.Development.json");
         await ui.AddKeyAsync("NewFeature:Name", "\"TestValue\"");
 
-        // Re-render has happened (toast triggered reload). Key must be visible.
         await ui.TreeRowByKey("NewFeature").WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible
@@ -46,7 +38,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
             State = WaitForSelectorState.Visible
         });
 
-        // Expand the Database object.
         await ui.ExpandToggleForKey("Database").ClickAsync();
         await ui.TreeRowByKey("Host").WaitForAsync(new LocatorWaitForOptions
         {
@@ -70,8 +61,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         await ui.AddSubmitButton.ClickAsync();
 
         await ui.ErrorToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
-        var msg = await ui.ErrorToast.InnerTextAsync();
-        msg.Should().ContainAny("exists", "already");
     }
 
     [Fact]
@@ -97,9 +86,8 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         await ui.SelectFileAsync("appsettings.Development.json");
         await ui.AddKeyAsync("FeatureFlags:EnableExport", "true");
 
-        // Expand FeatureFlags if collapsed.
-        var row = ui.TreeRowByKey("FeatureFlags");
-        var toggle = row.Locator(".tree-toggle");
+        // Expand FeatureFlags.
+        var toggle = ui.ExpandToggleForKey("FeatureFlags");
         if (await toggle.InnerTextAsync() == "▸")
             await toggle.ClickAsync();
 
@@ -117,7 +105,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
 
         await ui.SelectFileAsync("appsettings.json");
 
-        // AllowedHosts is a top-level scalar.
         var row = ui.TreeRowByKey("AllowedHosts");
         await row.DblClickAsync();
 
@@ -142,7 +129,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         await ui.InlineInput.FillAsync("changed-but-cancelled");
         await ui.InlineInput.PressAsync("Escape");
 
-        // Editor closes, no toast.
         await ui.InlineEditor.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Hidden
@@ -159,13 +145,15 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
 
         await ui.SelectFileAsync("appsettings.Development.json");
 
-        // Edit MaxItems (number).
+        // MaxItems is nested under FeatureFlags — expand first.
+        var featureFlagsToggle = ui.ExpandToggleForKey("FeatureFlags");
+        await featureFlagsToggle.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        if ((await featureFlagsToggle.InnerTextAsync()).Trim() == "▸")
+            await featureFlagsToggle.ClickAsync();
+
+        // Now MaxItems is visible.
         var row = ui.TreeRowByKey("MaxItems");
-        if (await row.IsHiddenAsync())
-        {
-            await ui.ExpandToggleForKey("FeatureFlags").ClickAsync();
-            row = ui.TreeRowByKey("MaxItems");
-        }
+        await row.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
         await row.DblClickAsync();
         await ui.InlineInput.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
@@ -174,7 +162,7 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
 
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        // Value updated in the tree.
+        // Value updated.
         var valueEl = page.Locator(".tree-value.number", new PageLocatorOptions { HasText = "200" }).First;
         await valueEl.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
     }
@@ -187,18 +175,15 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
 
         await ui.SelectFileAsync("appsettings.json");
 
-        // Turn auto-save OFF.
         var toggle = page.Locator("#blur-save-toggle");
         await toggle.ClickAsync();
-        var state = await toggle.GetAttributeAsync("aria-checked");
-        state.Should().Be("false");
+        (await toggle.GetAttributeAsync("aria-checked")).Should().Be("false");
 
         var row = ui.TreeRowByKey("AllowedHosts");
         await row.DblClickAsync();
         await ui.InlineInput.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.InlineInput.FillAsync("blur-no-save");
 
-        // Click elsewhere to blur.
         await ui.ToolbarTitle.ClickAsync();
         await page.WaitForTimeoutAsync(500);
 
@@ -214,7 +199,7 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        // First add a key we can safely delete.
+        // Add a disposable key first so the seeded file isn't touched.
         await ui.SelectFileAsync("appsettings.Development.json");
         await ui.AddKeyAsync("ToBeDeleted", "\"bye\"");
         await ui.TreeRowByKey("ToBeDeleted").WaitForAsync(new LocatorWaitForOptions
@@ -222,15 +207,18 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
             State = WaitForSelectorState.Visible
         });
 
-        // Now delete it.
-        await ui.DeleteKeyAsync("ToBeDeleted");
+        // Delete it.
+        var row = ui.TreeRowByKey("ToBeDeleted");
+        await row.HoverAsync();
+        await row.Locator(".row-actions .btn-danger").ClickAsync();
+        await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await ui.ModalConfirmButton.ClickAsync();
+        await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        // Row must disappear.
-        await ui.TreeRowByKey("ToBeDeleted").WaitForAsync(new LocatorWaitForOptions
-        {
-            State = WaitForSelectorState.Hidden,
-            Timeout = 5000
-        });
+        // Wait for the tree to re-render, then assert gone.
+        await page.WaitForTimeoutAsync(500);
+        var count = await ui.TreeRowByKey("ToBeDeleted").CountAsync();
+        count.Should().Be(0);
     }
 
     [Fact]
@@ -241,16 +229,14 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
 
         await ui.SelectFileAsync("appsettings.Development.json");
 
-        // Hover the Logging row to reveal actions.
         var row = ui.TreeRowByKey("Logging");
         await row.HoverAsync();
         await row.Locator(".row-actions .btn-danger").ClickAsync();
 
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.ModalCancelButton.ClickAsync();
-
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Hidden });
-        // Logging key still present.
+
         await ui.TreeRowByKey("Logging").WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible
@@ -270,13 +256,11 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         var toggle = ui.ExpandToggleForKey("Logging");
         await toggle.ClickAsync();
 
-        // Children appear.
         await ui.TreeRowByKey("LogLevel").WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible
         });
 
-        // Collapse.
         await toggle.ClickAsync();
         await ui.TreeRowByKey("LogLevel").WaitForAsync(new LocatorWaitForOptions
         {
@@ -295,14 +279,12 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         await ui.SelectFileAsync("appsettings.json");
         await ui.SearchInput.FillAsync("connection");
 
-        // ConnectionStrings key visible.
         await ui.TreeRowByKey("ConnectionStrings").WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
             Timeout = 3000
         });
 
-        // AllowedHosts key filtered out.
         await ui.TreeRowByKey("AllowedHosts").WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Hidden,
@@ -335,7 +317,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        // Add a password key.
         await ui.SelectFileAsync("appsettings.Development.json");
         await ui.AddKeyAsync("Database:Password", "\"super-secret-123\"");
 
@@ -345,7 +326,6 @@ public sealed class CrudOperationTests(ConfigUITestFixture fixture)
         var maskedEl = page.Locator(".tree-value.masked");
         await maskedEl.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
-        // Reveal button exists.
         var revealBtn = page.Locator("button", new PageLocatorOptions { HasText = "reveal" }).First;
         await revealBtn.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
     }

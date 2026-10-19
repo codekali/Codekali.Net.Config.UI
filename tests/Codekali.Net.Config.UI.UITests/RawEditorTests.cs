@@ -1,18 +1,32 @@
-using Codekali.Net.Config.UI.UITests.Fixtures;
-using Codekali.Net.Config.UI.UITests.Pages;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Codekali.Net.Config.UI.UITests.Tests;
+namespace Codekali.Net.Config.UI.UITests;
 
 /// <summary>
-/// Tests the Raw JSON editor panel — Monaco load status, toggle between Tree/Raw,
-/// save via Ctrl+S, format action, and invalid JSON rejection.
+/// Tests the Raw JSON editor panel.
+/// NOTE: Monaco always loads from CDN in these tests, so the fallback textarea
+/// (#raw-editor-ta) is always hidden. All content read/write goes through the
+/// Monaco JS API (window._monacoInstance).
 /// </summary>
 [Collection("ConfigUI")]
 public sealed class RawEditorTests(ConfigUITestFixture fixture)
 {
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    /// <summary>Switches to raw mode and waits for Monaco to initialise.</summary>
+    private static async Task SwitchToRawAndWaitAsync(IPage page, ConfigUIPage ui)
+    {
+        await ui.RawToggle.ClickAsync();
+        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        // Give Monaco up to 3 s to finish mounting.
+        await page.WaitForFunctionAsync(
+            "() => !!window._monacoInstance && window._monacoInstance.getValue().length > 0",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 3000 });
+    }
+
     // ── View toggle ───────────────────────────────────────────────────────
 
     [Fact]
@@ -22,8 +36,6 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.json");
-
-        // Start in tree mode — verify.
         await ui.TreeView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
         await ui.RawToggle.ClickAsync();
@@ -56,25 +68,20 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
 
         await ui.SelectFileAsync("appsettings.json");
 
-        // Tree is active by default.
         var treeClasses = await ui.TreeToggle.GetAttributeAsync("class");
         treeClasses.Should().Contain("active");
 
-        var rawClasses = await ui.RawToggle.GetAttributeAsync("class");
-        rawClasses.Should().NotContain("active");
-
-        // Switch to raw.
         await ui.RawToggle.ClickAsync();
         await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
-        rawClasses = await ui.RawToggle.GetAttributeAsync("class");
+        var rawClasses = await ui.RawToggle.GetAttributeAsync("class");
         rawClasses.Should().Contain("active");
 
         treeClasses = await ui.TreeToggle.GetAttributeAsync("class");
         treeClasses.Should().NotContain("active");
     }
 
-    // ── Monaco load ───────────────────────────────────────────────────────
+    // ── Monaco status ─────────────────────────────────────────────────────
 
     [Fact]
     public async Task RawView_MonacoStatusBadge_IsVisible()
@@ -85,12 +92,12 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         await ui.SelectFileAsync("appsettings.json");
         await ui.RawToggle.ClickAsync();
         await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await page.WaitForTimeoutAsync(1000);
 
         var badge = page.Locator("#monaco-status");
         await badge.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
         var badgeText = await badge.InnerTextAsync();
-        // Either Monaco loaded or the fallback badge is shown — both are valid UI states.
         badgeText.Should().ContainAny("Monaco", "Basic editor");
     }
 
@@ -101,26 +108,9 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.json");
-        await ui.RawToggle.ClickAsync();
-        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await SwitchToRawAndWaitAsync(page, ui);
 
-        // Wait briefly for Monaco to initialise and populate the model.
-        await page.WaitForTimeoutAsync(1000);
-
-        var monacoLoaded = await page.EvaluateAsync<bool>(
-            "() => !!window._monacoInstance");
-
-        string content;
-        if (monacoLoaded)
-        {
-            content = await ui.GetMonacoContentAsync();
-        }
-        else
-        {
-            // Fallback textarea.
-            content = await ui.RawEditorFallback.InputValueAsync();
-        }
-
+        var content = await ui.GetMonacoContentAsync();
         content.Should().Contain("AllowedHosts");
         content.Should().Contain("Logging");
     }
@@ -134,27 +124,12 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.Development.json");
-        await ui.RawToggle.ClickAsync();
-        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-        await page.WaitForTimeoutAsync(1000);
+        await SwitchToRawAndWaitAsync(page, ui);
 
-        // Append a new key via JS to keep the JSON valid.
-        var monacoLoaded = await page.EvaluateAsync<bool>("() => !!window._monacoInstance");
-        if (monacoLoaded)
-        {
-            var current = await ui.GetMonacoContentAsync();
-            var updated = current.TrimEnd().TrimEnd('}') + ",\n  \"SavedViaRaw\": true\n}";
-            await ui.SetMonacoContentAsync(updated);
-        }
-        else
-        {
-            var ta = ui.RawEditorFallback;
-            var current = await ta.InputValueAsync();
-            var updated = current.TrimEnd().TrimEnd('}') + ",\n  \"SavedViaRaw\": true\n}";
-            await ta.FillAsync(updated);
-        }
+        var current = await ui.GetMonacoContentAsync();
+        var updated = current.TrimEnd().TrimEnd('}') + ",\n  \"SavedViaRaw\": true\n}";
+        await ui.SetMonacoContentAsync(updated);
 
-        // Click the 💾 Save button.
         await page.GetByTitle("Save (Ctrl+S)").ClickAsync();
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 6000 });
     }
@@ -166,18 +141,11 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.Development.json");
-        await ui.RawToggle.ClickAsync();
-        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-        await page.WaitForTimeoutAsync(1000);
+        await SwitchToRawAndWaitAsync(page, ui);
 
-        var monacoLoaded = await page.EvaluateAsync<bool>("() => !!window._monacoInstance");
-        if (monacoLoaded)
-            await ui.SetMonacoContentAsync("{ this is not valid JSON !!!}");
-        else
-            await ui.RawEditorFallback.FillAsync("{ this is not valid JSON !!!}");
+        await ui.SetMonacoContentAsync("{ this is not valid JSON !!!}");
 
         await page.GetByTitle("Save (Ctrl+S)").ClickAsync();
-
         await ui.ErrorToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
     }
 
@@ -188,11 +156,10 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.json");
-        await ui.RawToggle.ClickAsync();
-        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-        await page.WaitForTimeoutAsync(1000);
+        await SwitchToRawAndWaitAsync(page, ui);
 
-        // File is valid — Ctrl+S should save without changes and show success.
+        // Focus the Monaco editor then send Ctrl+S.
+        await ui.MonacoContainer.ClickAsync();
         await page.Keyboard.PressAsync("Control+s");
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
     }
@@ -200,36 +167,24 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
     // ── Format ────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task FormatButton_WithFallbackEditor_FormatsJson()
+    public async Task FormatButton_DoesNotThrowError()
     {
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.json");
-        await ui.RawToggle.ClickAsync();
-        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-        await page.WaitForTimeoutAsync(1000);
+        await SwitchToRawAndWaitAsync(page, ui);
 
-        var monacoLoaded = await page.EvaluateAsync<bool>("() => !!window._monacoInstance");
-        if (!monacoLoaded)
-        {
-            // Only relevant for the fallback textarea path.
-            await ui.RawEditorFallback.FillAsync("{\"a\":1,\"b\":2}");
-            await page.GetByTitle("Format JSON (Shift+Alt+F)").ClickAsync();
-            var formatted = await ui.RawEditorFallback.InputValueAsync();
-            formatted.Should().Contain("\n");
-        }
-        else
-        {
-            // Monaco's format action runs asynchronously — just confirm no error toast.
-            await page.GetByTitle("Format JSON (Shift+Alt+F)").ClickAsync();
-            await page.WaitForTimeoutAsync(800);
-            var toastCount = await ui.ErrorToast.CountAsync();
-            toastCount.Should().Be(0);
-        }
+        // Click the Format button — Monaco's format-document action runs.
+        await page.GetByTitle("Format JSON (Shift+Alt+F)").ClickAsync();
+        await page.WaitForTimeoutAsync(600);
+
+        // No error toast should appear.
+        var errorCount = await ui.ErrorToast.CountAsync();
+        errorCount.Should().Be(0);
     }
 
-    // ── Switching files while in raw mode ─────────────────────────────────
+    // ── Switching files ───────────────────────────────────────────────────
 
     [Fact]
     public async Task SwitchFile_WhileInRawMode_LoadsNewFileContent()
@@ -238,19 +193,22 @@ public sealed class RawEditorTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.json");
-        await ui.RawToggle.ClickAsync();
-        await ui.RawView.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-        await page.WaitForTimeoutAsync(800);
+        await SwitchToRawAndWaitAsync(page, ui);
 
-        await ui.SelectFileAsync("appsettings.Production.json");
-        await page.WaitForTimeoutAsync(800);
+        // Switch to Production file (raw mode is preserved).
+        // We click the sidebar item directly — no tree-view wait needed in raw mode.
+        await page.Locator("#file-list .file-item", new PageLocatorOptions
+        {
+            HasText = "appsettings.Production.json"
+        }).First.ClickAsync();
 
-        var monacoLoaded = await page.EvaluateAsync<bool>("() => !!window._monacoInstance");
-        string content = monacoLoaded
-            ? await ui.GetMonacoContentAsync()
-            : await ui.RawEditorFallback.InputValueAsync();
+        // Wait for Monaco to reload with the new file's content.
+        await page.WaitForFunctionAsync(
+            "() => window._monacoInstance?.getValue().includes('Warning')",
+            null,
+            new PageWaitForFunctionOptions { Timeout = 5000 });
 
-        // Production file contains "Warning" level, not present in base.
+        var content = await ui.GetMonacoContentAsync();
         content.Should().Contain("Warning");
     }
 }

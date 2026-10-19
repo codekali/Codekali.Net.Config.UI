@@ -1,6 +1,6 @@
-using Microsoft.Playwright;
+﻿using Microsoft.Playwright;
 
-namespace Codekali.Net.Config.UI.UITests.Pages;
+namespace Codekali.Net.Config.UI.UITests;
 
 /// <summary>
 /// Page Object Model for the Config UI.

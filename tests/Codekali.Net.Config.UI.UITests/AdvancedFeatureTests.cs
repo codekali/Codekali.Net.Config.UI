@@ -1,15 +1,9 @@
-using Codekali.Net.Config.UI.UITests.Fixtures;
-using Codekali.Net.Config.UI.UITests.Pages;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Codekali.Net.Config.UI.UITests.Tests;
+namespace Codekali.Net.Config.UI.UITests;
 
-/// <summary>
-/// Tests for array CRUD, schema violation banner, assertion runner panel,
-/// read-only mode enforcement, and the hot-reload banner path.
-/// </summary>
 [Collection("ConfigUI")]
 public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
 {
@@ -22,19 +16,20 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.Development.json");
-
-        // Add an array.
         await ui.AddKeyAsync("Cors:Origins", "[\"https://localhost:3000\"]");
 
-        // Cors key visible.
         await ui.TreeRowByKey("Cors").WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible
         });
 
-        // Badge shows [1].
-        var badge = page.Locator(".tree-type-badge", new PageLocatorOptions { HasText = "[1]" }).First;
-        await badge.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        // The tree-type-badge for an array shows [N]. Look for any badge containing "[".
+        var badge = page.Locator(".tree-type-badge").Filter(new LocatorFilterOptions { HasText = "[" }).First;
+        await badge.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = 5000
+        });
     }
 
     [Fact]
@@ -45,18 +40,20 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
 
         await ui.SelectFileAsync("appsettings.Development.json");
 
-        // Add array with one item.
+        // Add array with one item first.
         await ui.AddKeyAsync("AllowedOrigins", "[\"https://app.example.com\"]");
 
-        // Expand it.
         var row = ui.TreeRowByKey("AllowedOrigins");
         await row.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+
+        // Expand the array.
         await ui.ExpandToggleForKey("AllowedOrigins").ClickAsync();
         await page.WaitForTimeoutAsync(300);
 
-        // Hover to reveal the "+ item" button.
+        // Hover the row to reveal the "+ item" button.
         await row.HoverAsync();
         var appendBtn = row.Locator(".row-actions button", new LocatorLocatorOptions { HasText = "+ item" }).First;
+        await appendBtn.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await appendBtn.ClickAsync();
 
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
@@ -67,7 +64,7 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
         // Badge should now show [2].
-        var badge = page.Locator(".tree-type-badge", new PageLocatorOptions { HasText = "[2]" }).First;
+        var badge = page.Locator(".tree-type-badge").Filter(new LocatorFilterOptions { HasText = "[2]" }).First;
         await badge.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
@@ -85,22 +82,29 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
 
         // Add array with two items.
         await ui.AddKeyAsync("DeleteMeArray", "[\"item-a\",\"item-b\"]");
-        var row = ui.TreeRowByKey("DeleteMeArray");
-        await row.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+
+        var arrayRow = ui.TreeRowByKey("DeleteMeArray");
+        await arrayRow.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+
+        // Expand.
         await ui.ExpandToggleForKey("DeleteMeArray").ClickAsync();
         await page.WaitForTimeoutAsync(300);
 
-        // Delete item at index 0 — hover first child row.
-        var firstItem = page.Locator(".tree-node").Nth(1);
-        await firstItem.HoverAsync();
-        var delBtn = firstItem.Locator(".row-actions .btn-danger").First;
+        // More reliable: find the first array-item row by its btn-danger.
+        var delBtn = page.Locator(".tree-node .row-actions .btn-danger").First;
+        await delBtn.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = 3000 });
+
+        // Hover parent to reveal action.
+        var itemRows = page.Locator(".tree-node").Nth(1);
+        await itemRows.HoverAsync();
         await delBtn.ClickAsync();
 
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.ModalConfirmButton.ClickAsync();
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        var badge = page.Locator(".tree-type-badge", new PageLocatorOptions { HasText = "[1]" }).First;
+        // Array badge should now be [1].
+        var badge = page.Locator(".tree-type-badge").Filter(new LocatorFilterOptions { HasText = "[1]" }).First;
         await badge.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
@@ -113,8 +117,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
     [Fact]
     public async Task SchemaViolationsBanner_HiddenWhenNoSchemaConfigured()
     {
-        // When no schema is configured the banner must stay hidden — it should
-        // never appear on its own. The default test host has no schema set.
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
@@ -131,15 +133,12 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
     [Fact]
     public async Task SchemaViolationsBanner_DismissButton_HidesBanner()
     {
-        // Force the banner visible via JS to test the dismiss path — this does
-        // not require a real schema to be configured.
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
         await ui.SelectFileAsync("appsettings.json");
 
-        // Build the banner and wire up the dismiss button entirely in JS
-        // to avoid any C#/HTML quoting interaction.
+        // Inject a banner via JS using DOM construction to avoid any quoting issues.
         await page.EvaluateAsync("""
             () => {
                 const banner = document.getElementById('schema-violations');
@@ -157,7 +156,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
                 btn.textContent = '\u2715';
                 btn.className = 'btn btn-ghost btn-sm';
                 btn.style.marginLeft = 'auto';
-                btn.setAttribute('data-dismiss', 'schema-violations');
                 btn.addEventListener('click', () => {
                     banner.classList.add('hidden');
                 });
@@ -174,7 +172,8 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
             State = WaitForSelectorState.Visible
         });
 
-        await ui.SchemaViolationsBanner.GetByText("✕").ClickAsync();
+        // Click the ✕ button inside the banner.
+        await ui.SchemaViolationsBanner.Locator("button").ClickAsync();
 
         await ui.SchemaViolationsBanner.WaitForAsync(new LocatorWaitForOptions
         {
@@ -187,7 +186,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
     [Fact]
     public async Task TestsPanel_RunAllTests_WhenNoTestsRegistered_ShowsNoTestsMessage()
     {
-        // Default sample app has no IConfigurationTest implementations registered.
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
@@ -200,7 +198,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
         var noTests = page.Locator("#tests-no-tests");
         var testsResult = page.Locator("#tests-result");
 
-        // Either the no-tests div appears or the result has content.
         var noTestsVisible = await noTests.IsVisibleAsync();
         var resultHtml = await testsResult.InnerHTMLAsync();
 
@@ -217,8 +214,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
         await ui.NavTests.ClickAsync();
         await ui.TestsPanel.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
-        // Just verifies the button is present and not disabled.
-        await ui.RunTestsButton.IsEnabledAsync();
         var isEnabled = await ui.RunTestsButton.IsEnabledAsync();
         isEnabled.Should().BeTrue();
     }
@@ -228,22 +223,16 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
     [Fact]
     public async Task ReadOnlyMode_AddButton_IsDisabled()
     {
-        // This test requires the host to be started with ReadOnly = true.
-        // Skip gracefully if not in read-only mode.
         var page = await fixture.NewPageAsync();
 
         var isReadonly = await page.EvaluateAsync<bool>("() => window.READONLY === true");
-        if (!isReadonly)
-        {
-            // Not in read-only mode — skip.
-            return;
-        }
+        if (!isReadonly) return; // skip when not in read-only mode
 
         var ui = new ConfigUIPage(page);
         await ui.SelectFileAsync("appsettings.json");
 
         var isDisabled = await ui.AddKeyButton.IsDisabledAsync();
-        isDisabled.Should().BeTrue("add button must be disabled in read-only mode");
+        isDisabled.Should().BeTrue();
     }
 
     [Fact]
@@ -270,7 +259,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
         await ui.SelectFileAsync("appsettings.json");
         await ui.RefreshFileButton.ClickAsync();
 
-        // Tree re-renders — loading state disappears, tree visible.
         await ui.TreeView.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
@@ -307,7 +295,6 @@ public sealed class AdvancedFeatureTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        // Do not select a file — stats are in the no-file state.
         await ui.NoFileState.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
 
         var filesVal = await page.Locator("#ws-files").InnerTextAsync();

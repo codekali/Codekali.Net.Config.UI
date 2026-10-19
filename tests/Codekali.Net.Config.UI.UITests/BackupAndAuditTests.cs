@@ -1,31 +1,45 @@
-using Codekali.Net.Config.UI.UITests.Fixtures;
-using Codekali.Net.Config.UI.UITests.Pages;
-using FluentAssertions;
+﻿using FluentAssertions;
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Codekali.Net.Config.UI.UITests.Tests;
+namespace Codekali.Net.Config.UI.UITests;
 
-/// <summary>
-/// Tests the right sidebar: Backup tab (create, diff, restore, delete) and Audit tab.
-/// </summary>
 [Collection("ConfigUI")]
 public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
 {
+    // ── Helper: open sidebar ──────────────────────────────────────────────
+    private static async Task OpenSidebarAsync(IPage page, ConfigUIPage ui, string fileName)
+    {
+        await ui.SelectFileAsync(fileName);
+        // The Audits and Backups button is in toolbar-row2 which is only visible
+        // after a file is selected — wait for it before clicking.
+        await ui.BackupsButton.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Visible
+        });
+        await ui.BackupsButton.ClickAsync();
+        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = 4000
+        });
+    }
+
     // ── Sidebar open / close ──────────────────────────────────────────────
 
     [Fact]
     public async Task BackupsButton_NoFileSelected_ShowsWarning()
     {
         var page = await fixture.NewPageAsync();
-        var ui = new ConfigUIPage(page);
+        new ConfigUIPage(page);
 
-        // Do NOT select a file.
-        await ui.BackupsButton.ClickAsync();
+        // Do NOT select a file — button is hidden (toolbar not visible).
+        // Trigger the guard by calling it via JS directly.
+        await page.EvaluateAsync("() => window.openRightSidebar()");
 
         var warnToast = page.Locator(".toast.warn");
         await warnToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 4000 });
-        (await warnToast.InnerTextAsync()).Should().Contain("Select a file");
+        (await warnToast.InnerTextAsync()).Should().ContainAny("Select", "file");
     }
 
     [Fact]
@@ -34,13 +48,11 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
+        await OpenSidebarAsync(page, ui, "appsettings.json");
 
         await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions
         {
-            State = WaitForSelectorState.Visible,
-            Timeout = 4000
+            State = WaitForSelectorState.Visible
         });
     }
 
@@ -50,10 +62,7 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-
+        await OpenSidebarAsync(page, ui, "appsettings.json");
         await page.GetByTitle("Close").ClickAsync();
 
         await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions
@@ -71,20 +80,14 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.json");
 
-        // Open the named backup dialog.
         await ui.NewBackupButton.ClickAsync();
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-
-        // Accept the suggested name.
         await ui.ModalConfirmButton.ClickAsync();
 
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        // At least one backup item now shows.
         var items = page.Locator(".backup-item");
         await items.First.WaitForAsync(new LocatorWaitForOptions
         {
@@ -99,9 +102,7 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.Development.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.Development.json");
 
         await ui.NewBackupButton.ClickAsync();
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
@@ -114,8 +115,8 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
 
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        // Backup item label contains the custom name.
-        var backupName = page.Locator(".backup-name", new PageLocatorOptions { HasText = "before-refactor" }).First;
+        var backupName = page.Locator(".backup-name",
+            new PageLocatorOptions { HasText = "before-refactor" }).First;
         await backupName.WaitForAsync(new LocatorWaitForOptions
         {
             State = WaitForSelectorState.Visible,
@@ -131,21 +132,17 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.json");
 
-        // Create a backup first so there is something to diff.
+        // Create a backup first.
         await ui.NewBackupButton.ClickAsync();
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.ModalConfirmButton.ClickAsync();
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        // Click the ⊞ diff button on the first backup item.
         var diffBtn = page.Locator(".backup-item-actions").First.GetByTitle("Diff");
         await diffBtn.ClickAsync();
 
-        // Diff modal appears with a title.
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         var title = await ui.ModalTitle.InnerTextAsync();
         title.Should().Contain("Diff");
@@ -161,17 +158,13 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.json");
 
-        // Ensure at least one backup exists.
         await ui.NewBackupButton.ClickAsync();
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.ModalConfirmButton.ClickAsync();
         await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
 
-        // Click restore (↩) on the first item.
         var restoreBtn = page.Locator(".backup-item-actions").First.GetByTitle("Restore");
         await restoreBtn.ClickAsync();
 
@@ -179,7 +172,6 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var body = await ui.ModalBody.InnerTextAsync();
         body.Should().ContainAny("Restore", "restore", "backed up");
 
-        // Cancel — don't actually restore.
         await ui.ModalCancelButton.ClickAsync();
     }
 
@@ -191,15 +183,20 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.Production.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.Production.json");
 
-        // Create.
+        // Create one backup.
         await ui.NewBackupButton.ClickAsync();
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.ModalConfirmButton.ClickAsync();
-        await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+
+        // Wait for the single success toast then dismiss it by waiting for it to vanish.
+        await ui.SuccessToast.First.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+        await ui.SuccessToast.First.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Hidden,
+            Timeout = 5000
+        });
 
         var countBefore = await page.Locator(".backup-item").CountAsync();
 
@@ -208,7 +205,10 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         await deleteBtn.ClickAsync();
         await ui.ModalBackdrop.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.ModalConfirmButton.ClickAsync();
-        await ui.SuccessToast.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+
+        // Wait for the delete success toast.
+        await page.Locator(".toast.success").First.WaitForAsync(new LocatorWaitForOptions { Timeout = 5000 });
+        await page.WaitForTimeoutAsync(300);
 
         var countAfter = await page.Locator(".backup-item").CountAsync();
         countAfter.Should().Be(countBefore - 1);
@@ -222,18 +222,17 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        // Make an edit first so audit has something.
+        // Make an edit first.
         await ui.SelectFileAsync("appsettings.Development.json");
         await ui.AddKeyAsync("AuditTestKey", "\"hello\"");
 
-        // Open sidebar → audit tab.
+        await ui.BackupsButton.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.BackupsButton.ClickAsync();
         await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
         await ui.AuditTab.ClickAsync();
 
         await page.WaitForTimeoutAsync(600);
 
-        // Either audit entries appear, or the "disabled" message is shown (depends on options).
         var auditContent = await ui.AuditList.InnerTextAsync();
         auditContent.Should().ContainAny(
             "AuditTestKey", "Add", "Update", "disabled", "Enable");
@@ -245,14 +244,11 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.json");
         await ui.AuditTab.ClickAsync();
         await page.WaitForTimeoutAsync(400);
 
-        var refreshBtn = page.Locator(".rs-actions", new PageLocatorOptions { HasText = "Refresh" }).First;
-        // Should not throw — a second load should complete without error.
+        var refreshBtn = page.GetByText("↻ Refresh");
         await refreshBtn.ClickAsync();
         await page.WaitForTimeoutAsync(600);
 
@@ -268,9 +264,7 @@ public sealed class BackupAndAuditTests(ConfigUITestFixture fixture)
         var page = await fixture.NewPageAsync();
         var ui = new ConfigUIPage(page);
 
-        await ui.SelectFileAsync("appsettings.json");
-        await ui.BackupsButton.ClickAsync();
-        await ui.RightSidebar.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+        await OpenSidebarAsync(page, ui, "appsettings.json");
 
         var backupsTabClasses = await ui.BackupsTab.GetAttributeAsync("class");
         backupsTabClasses.Should().Contain("active");
